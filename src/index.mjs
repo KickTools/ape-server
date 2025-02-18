@@ -11,37 +11,44 @@ import dataSubmitRoute from "./routes/dataSubmitRoute.mjs";
 import { connectMongo } from "./services/mongo.mjs";
 import logger from "./middlewares/logger.mjs";
 import { kickRateLimiter } from "./middlewares/rateLimiter.mjs";
-import cors from 'cors';
+import cors from "cors";
 
 const app = express();
 
 // Enable CORS for specific origin
-const corsOptions = {
-  origin: 'http://localhost:3000',
-  credentials: true,
-};
+app.use(
+  cors({
+    origin: "http://localhost:3000",
+    credentials: true,
+    methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type"]
+  })
+);
 
 app.use(cors(corsOptions));
 
 app.use(express.json()); // Add middleware to parse JSON bodies
 
 // Initialize MongoDB connection
-connectMongo().then(() => {
-  logger.info("Database initialized successfully");
-}).catch(err => {
-  console.error("Failed to connect to MongoDB", err);
-  process.exit(1); // Exit the process with failure
-});
+connectMongo()
+  .then(() => {
+    logger.info("Database initialized successfully");
+  })
+  .catch((err) => {
+    console.error("Failed to connect to MongoDB", err);
+    process.exit(1); // Exit the process with failure
+  });
 
 // Session middleware
 app.use(
   session({
     secret: process.env.SESSION_SECRET,
     resave: false,
-    saveUninitialized: true,
-    cookie: { 
-      secure: true,    // Required for SameSite=None
-      sameSite: 'none' // Allows cross-origin cookies
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === "production",
+      sameSite: 'lax',
+      httpOnly: true
     }
   })
 );
@@ -54,12 +61,12 @@ app.use(passport.session());
 app.use(logUserActivity);
 
 // Apply rate limiter middleware to the Kick routes
-app.use('/kick', kickRateLimiter, kickRoutes);
+app.use("/kick", kickRateLimiter, kickRoutes);
 
 // Routes
 app.use(authRoutes);
-app.use('/data/retrieve', dataReviewRoute);
-app.use('/data/submit', dataSubmitRoute);
+app.use("/data/retrieve", dataReviewRoute);
+app.use("/data/submit", dataSubmitRoute);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
