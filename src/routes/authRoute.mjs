@@ -30,30 +30,22 @@ router.get("/auth/login", (req, res) => {
 router.get("/auth/twitch/callback", async (req, res) => {
   try {
     const authorizationCode = req.query.code;
-    logger.info(`Authorization Code: ${authorizationCode}`);
+    console.log("Starting callback process with code:", authorizationCode);
 
     if (!authorizationCode) {
       console.error("No authorization code received from Twitch");
-      return res.status(400).json({
-        success: false,
-        message: "No authorization code provided"
-      });
+      return res.redirect(`${process.env.FRONTEND_URL}/login/error`);
     }
 
-    // Get tokens and fetch user data
+    // Get tokens from Twitch
     const tokens = await getTokens(authorizationCode);
+    console.log("Successfully received tokens from Twitch");
 
-    if (!tokens || !tokens.access_token) {
-      console.error("Invalid token response:", tokens);
-      return res.status(400).json({
-        success: false,
-        message: "Failed to get valid tokens"
-      });
-    }
-
+    // Get user data
     const userData = await fetchUserData(tokens.access_token);
     const followerCount = await fetchChannelFollowers(tokens.access_token, userData.id);
     userData.followers_count = followerCount;
+    console.log("Successfully fetched user data");
 
     // Create JWT tokens
     const accessToken = jwt.sign(
@@ -63,12 +55,18 @@ router.get("/auth/twitch/callback", async (req, res) => {
     );
 
     const refreshToken = jwt.sign(
-      { userId: userData.id, type: 'refresh', twitchRefreshToken: encrypt(tokens.refresh_token) },
+      { 
+        userId: userData.id, 
+        type: 'refresh', 
+        twitchRefreshToken: encrypt(tokens.refresh_token) 
+      },
       JWT_REFRESH_SECRET,
       { expiresIn: '7d' }
     );
 
-    // Set tokens in HTTP-only cookies
+    console.log("JWT tokens created successfully");
+
+    // Set cookies
     res.cookie('access_token', accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -83,10 +81,12 @@ router.get("/auth/twitch/callback", async (req, res) => {
       maxAge: 604800000 // 7 days
     });
 
-    // Redirect to frontend with success status
+    console.log("Cookies set successfully");
+
+    // Redirect to frontend
     res.redirect(`${process.env.FRONTEND_URL}/login/callback`);
   } catch (error) {
-    logger.error("Error in callback:", error);
+    console.error("Error in callback:", error);
     res.redirect(`${process.env.FRONTEND_URL}/login/error`);
   }
 });
@@ -251,6 +251,12 @@ router.get("/auth/user", async (req, res) => {
       error: error.message
     });
   }
+});
+
+router.get("/auth/twitch", (req, res) => {
+  const state = `auth_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const authorizationUrl = getAuthorizationUrl(state);
+  res.redirect(authorizationUrl);
 });
 
 // Logout endpoint

@@ -21,6 +21,12 @@ export const getAuthorizationUrl = (state) => {
 // Function to exchange authorization code for tokens
 export const getTokens = async (code) => {
   const tokenUrl = 'https://id.twitch.tv/oauth2/token';
+
+  // Add validation for code
+  if (!code) {
+    throw new Error('Authorization code is required');
+  }
+
   const params = {
     client_id: TWITCH_CLIENT_ID,
     client_secret: TWITCH_CLIENT_SECRET,
@@ -30,14 +36,29 @@ export const getTokens = async (code) => {
   };
 
   try {
+    // Add logging to debug the request
+    console.log('Requesting Twitch tokens with code:', code);
+
     const response = await axios.post(tokenUrl, querystring.stringify(params), {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     });
 
+    // Add logging to see the response structure
+    console.log('Twitch token response received:', {
+      hasAccessToken: !!response.data.access_token,
+      hasRefreshToken: !!response.data.refresh_token,
+      expiresIn: response.data.expires_in
+    });
+
     return response.data;
   } catch (error) {
-    console.error('Error fetching tokens:', error.response?.data || error.message);
-    throw new Error('Failed to fetch tokens');
+    // Improved error logging
+    console.error('Error fetching tokens:', {
+      status: error.response?.status,
+      data: error.response?.data,
+      message: error.message
+    });
+    throw error;
   }
 };
 
