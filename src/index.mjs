@@ -2,7 +2,6 @@
 import "dotenv/config";
 import express from "express";
 import session from "express-session";
-import passport from "./config/passport.mjs";
 import { logUserActivity } from "./middlewares/logger.mjs";
 import authRoutes from "./routes/authRoute.mjs";
 import kickRoutes from "./routes/kickRoute.mjs";
@@ -51,15 +50,6 @@ app.use(
     }
   })
 );
-
-app.use((req, res, next) => {
-  console.log('Session Data:', req.session);
-  next();
-});
-
-// Initialize Passport
-app.use(passport.initialize());
-app.use(passport.session());
 
 // Logging middleware
 app.use(logUserActivity);
