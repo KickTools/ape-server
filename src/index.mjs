@@ -15,7 +15,7 @@ import cors from "cors";
 
 const app = express();
 
-// Enable CORS for specific origin
+// Enable CORS with proper configuration
 app.use(
   cors({
     origin: "http://localhost:3000",
@@ -24,8 +24,6 @@ app.use(
     allowedHeaders: ["Content-Type"]
   })
 );
-
-app.use(cors(corsOptions));
 
 app.use(express.json()); // Add middleware to parse JSON bodies
 
@@ -48,7 +46,8 @@ app.use(
     cookie: {
       secure: process.env.NODE_ENV === "production",
       sameSite: 'lax',
-      httpOnly: true
+      httpOnly: true,
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }
   })
 );
