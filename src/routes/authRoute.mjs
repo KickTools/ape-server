@@ -32,11 +32,27 @@ router.get("/auth/twitch/callback", async (req, res) => {
     const authorizationCode = req.query.code;
     logger.info(`Authorization Code: ${authorizationCode}`);
 
+    if (!authorizationCode) {
+      console.error("No authorization code received from Twitch");
+      return res.status(400).json({
+        success: false,
+        message: "No authorization code provided"
+      });
+    }
+
     // Get tokens and fetch user data
     const tokens = await getTokens(authorizationCode);
+
+    if (!tokens || !tokens.access_token) {
+      console.error("Invalid token response:", tokens);
+      return res.status(400).json({
+        success: false,
+        message: "Failed to get valid tokens"
+      });
+    }
+
     const userData = await fetchUserData(tokens.access_token);
     const followerCount = await fetchChannelFollowers(tokens.access_token, userData.id);
-
     userData.followers_count = followerCount;
 
     // Create JWT tokens
@@ -56,14 +72,14 @@ router.get("/auth/twitch/callback", async (req, res) => {
     res.cookie('access_token', accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      sameSite: 'lax',
       maxAge: 3600000 // 1 hour
     });
 
     res.cookie('refresh_token', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      sameSite: 'lax',
       maxAge: 604800000 // 7 days
     });
 
@@ -193,9 +209,48 @@ router.get("/auth/failure", (req, res) => {
   res.status(401).json({ success: false, message: "Authentication failed" });
 });
 
-// Protected route example
-router.get("/auth/user", verifyToken, (req, res) => {
-  res.json({ success: true, user: req.user });
+router.get("/auth/user", async (req, res) => {
+  try {
+    const accessToken = req.cookies.access_token;
+    
+    if (!accessToken) {
+      return res.status(401).json({
+        success: false,
+        message: "No access token"
+      });
+    }
+
+    try {
+      const decoded = jwt.verify(accessToken, JWT_SECRET);
+      
+      if (decoded.type !== 'access') {
+        return res.status(401).json({
+          success: false,
+          message: "Invalid token type"
+        });
+      }
+
+      res.json({
+        success: true,
+        user: decoded.user
+      });
+    } catch (error) {
+      if (error.name === 'TokenExpiredError') {
+        return res.status(401).json({
+          success: false,
+          message: "Token expired"
+        });
+      }
+      throw error;
+    }
+  } catch (error) {
+    console.error("Error in /auth/user:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error getting user data",
+      error: error.message
+    });
+  }
 });
 
 // Logout endpoint
