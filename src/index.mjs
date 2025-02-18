@@ -41,15 +41,14 @@ connectMongo()
 app.use(
   session({
     secret: process.env.SESSION_SECRET,
-    resave: false,
+    resave: false, 
     saveUninitialized: true,
     cookie: {
-      domain: '.squadw.online', // Or leave it empty for the current domain
-      path: '/',
-      secure: false, // true if HTTPS is used
-      sameSite: 'None', // Necessary for cross-origin requests
-      httpOnly: true, // Prevent access to cookies via JavaScript
-    },
+      httpOnly: true,  // Prevents JavaScript access to the cookie
+      secure: process.env.NODE_ENV === 'production',  // Ensure secure cookies for production (use HTTPS)
+      sameSite: 'None',  // Important for cross-site requests (e.g., redirects)
+      domain: '.squadw.online',  // Ensure cookie is set for your domain
+    }
   })
 );
 

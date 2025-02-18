@@ -19,6 +19,7 @@
     "express-rate-limit": "^7.5.0",
     "express-session": "^1.18.1",
     "iron-session": "^8.0.4",
+    "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.10.0",
     "node-fetch": "^3.3.2",
     "passport": "^0.7.0",
