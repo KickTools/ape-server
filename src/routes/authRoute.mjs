@@ -1,12 +1,10 @@
-// src/routes/authRoute.mjsimport { Router } from "express";
+// src/routes/authRoute.mjs
 import { Router } from "express";
 import { fetchUserData, fetchChannelFollowers } from "../utils/twitchApi.mjs";
 import { saveCombinedUserData } from "../utils/saveUserData.mjs";
 import { getAuthorizationUrl, getTokens, refreshTokenAccess } from "../utils/twitchAuth.mjs";
 import { encrypt, decrypt } from "../utils/encryption.mjs";
 import { getViewerByUserId } from '../utils/dataReview.mjs';
-import { sessionOptions } from '../lib/session.mjs';
-import { withSession } from '../lib/session.mjs';
 import logger from '../middlewares/logger.mjs';
 
 const router = Router();
@@ -19,7 +17,7 @@ router.get("/auth/login", (req, res) => {
 });
 
 // Unified callback handler
-router.get("/auth/twitch/callback", withSession(async (req, res) => {
+router.get("/auth/twitch/callback", async (req, res) => {
   try {
     const authorizationCode = req.query.code;
     const state = req.query.state;
@@ -37,16 +35,13 @@ router.get("/auth/twitch/callback", withSession(async (req, res) => {
 
     userData.followers_count = followerCount;
 
-    // Store in iron-session
+    // Store in session
     req.session.twitchData = {
       user: userData,
       accessToken: encrypt(tokens.access_token),
       refreshToken: encrypt(tokens.refresh_token),
       expiresAt: new Date(Date.now() + tokens.expires_in * 1000).toISOString()
     };
-
-    // Save the session
-    await req.session.save();
 
     if (isLoginFlow) {
       const existingViewer = await getViewerByUserId('twitch', userData.id);
@@ -69,7 +64,7 @@ router.get("/auth/twitch/callback", withSession(async (req, res) => {
       error: error.message
     });
   }
-}));
+});
 
 router.get("/auth/twitch", (req, res) => {
   const state = req.sessionID;
@@ -77,36 +72,28 @@ router.get("/auth/twitch", (req, res) => {
   res.redirect(authorizationUrl);
 });
 
-router.get("/auth/twitch/session-data", withSession(async (req, res) => {
-  try {
-    console.log("Session Data: ", req.session.twitchData);
-    
-    if (!req.session?.twitchData) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "No session data found" 
-      });
-    }
-
-    // Decrypt tokens before sending
-    const twitchData = {
-      ...req.session.twitchData,
-      accessToken: decrypt(req.session.twitchData.accessToken),
-      refreshToken: decrypt(req.session.twitchData.refreshToken)
-    };
-
-    return res.json({ 
-      success: true, 
-      ...twitchData 
-    });
-  } catch (error) {
-    console.error('Error fetching session data:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to fetch session data'
+router.get("/auth/twitch/session-data", (req, res) => {
+  console.log("Session Data: ", req.session.twitchData);
+  
+  if (!req.session?.twitchData) {
+    return res.status(404).json({ 
+      success: false, 
+      message: "No session data found" 
     });
   }
-}));
+
+  // Decrypt tokens before sending
+  const twitchData = {
+    ...req.session.twitchData,
+    accessToken: decrypt(req.session.twitchData.accessToken),
+    refreshToken: decrypt(req.session.twitchData.refreshToken)
+  };
+
+  return res.json({ 
+    success: true, 
+    ...twitchData 
+  });
+});
 
 router.get("/OLDauth/twitch/callback", async (req, res) => {
   try {
