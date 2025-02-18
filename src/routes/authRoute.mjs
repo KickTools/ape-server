@@ -32,21 +32,16 @@ router.get("/auth/twitch/callback", async (req, res) => {
     const isLoginFlow = state?.startsWith("login_");
 
     const tokens = await getTokens(authorizationCode);
-    console.log("Got Tokens: ", tokens);
 
     const userData = await fetchUserData(tokens.access_token);
-    console.log("Got User Data: ", userData);
 
     const followerCount = await fetchChannelFollowers(
       tokens.access_token,
       userData.id
     );
-    console.log("Got Follower Count: ", followerCount);
 
     userData.followers_count = followerCount;
 
-    console.log("Before setting session:", req.session);
-    
     // Store in session
     req.session.twitchData = {
       user: userData,
@@ -54,17 +49,6 @@ router.get("/auth/twitch/callback", async (req, res) => {
       refreshToken: encrypt(tokens.refresh_token),
       expiresAt: new Date(Date.now() + tokens.expires_in * 1000).toISOString()
     };
-
-    // Explicitly save the session
-    req.session.save((err) => {
-      if (err) {
-        console.log("Session save error:", err);
-      } else {
-        console.log("Session after save:", req.session);
-      }
-    });
-
-    console.log("Session after setting data:", req.session);
 
     // Force session save
     await new Promise((resolve, reject) => {
