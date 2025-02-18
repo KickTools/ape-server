@@ -2,17 +2,21 @@
 import { Router } from "express";
 import { fetchUserData, fetchChannelFollowers } from "../utils/twitchApi.mjs";
 import { saveCombinedUserData } from "../utils/saveUserData.mjs";
-import { getAuthorizationUrl, getTokens, refreshTokenAccess } from "../utils/twitchAuth.mjs";
+import {
+  getAuthorizationUrl,
+  getTokens,
+  refreshTokenAccess
+} from "../utils/twitchAuth.mjs";
 import { encrypt, decrypt } from "../utils/encryption.mjs";
-import { getViewerByUserId } from '../utils/dataReview.mjs';
-import logger from '../middlewares/logger.mjs';
+import { getViewerByUserId } from "../utils/dataReview.mjs";
+import logger from "../middlewares/logger.mjs";
 
 const router = Router();
 
 // Regular login endpoint
 router.get("/auth/login", (req, res) => {
   const state = `login_${req.sessionID}`;
-  const authorizationUrl = getAuthorizationUrl(state, 'login'); // Pass login scope
+  const authorizationUrl = getAuthorizationUrl(state, "login"); // Pass login scope
   res.redirect(authorizationUrl);
 });
 
@@ -22,17 +26,17 @@ router.get("/auth/twitch/callback", async (req, res) => {
     console.log("\n=== START CALLBACK ===");
     console.log("Session ID:", req.sessionID);
     console.log("Initial Session:", req.session);
-    
+
     const authorizationCode = req.query.code;
     const state = req.query.state;
-    const isLoginFlow = state?.startsWith('login_');
+    const isLoginFlow = state?.startsWith("login_");
 
     const tokens = await getTokens(authorizationCode);
     console.log("Got Tokens: ", tokens);
-    
+
     const userData = await fetchUserData(tokens.access_token);
     console.log("Got User Data: ", userData);
-    
+
     const followerCount = await fetchChannelFollowers(
       tokens.access_token,
       userData.id
@@ -41,6 +45,8 @@ router.get("/auth/twitch/callback", async (req, res) => {
 
     userData.followers_count = followerCount;
 
+    console.log("Before setting session:", req.session);
+    
     // Store in session
     req.session.twitchData = {
       user: userData,
@@ -49,8 +55,17 @@ router.get("/auth/twitch/callback", async (req, res) => {
       expiresAt: new Date(Date.now() + tokens.expires_in * 1000).toISOString()
     };
 
+    // Explicitly save the session
+    req.session.save((err) => {
+      if (err) {
+        console.log("Session save error:", err);
+      } else {
+        console.log("Session after save:", req.session);
+      }
+    });
+
     console.log("Session after setting data:", req.session);
-    
+
     // Force session save
     await new Promise((resolve, reject) => {
       req.session.save((err) => {
@@ -65,11 +80,13 @@ router.get("/auth/twitch/callback", async (req, res) => {
     console.log("Session after save:", req.session);
 
     if (isLoginFlow) {
-      const existingViewer = await getViewerByUserId('twitch', userData.id);
-      
+      const existingViewer = await getViewerByUserId("twitch", userData.id);
+
       if (existingViewer) {
         console.log("=== END CALLBACK (existing user) ===\n");
-        res.redirect(`http://localhost:3000/login/callback?sessionId=${req.sessionID}`);
+        res.redirect(
+          `http://localhost:3000/login/callback?sessionId=${req.sessionID}`
+        );
       } else {
         console.log("=== END CALLBACK (new user) ===\n");
         res.redirect(`http://localhost:3000/connect`);
@@ -101,12 +118,12 @@ router.get("/auth/twitch/session-data", (req, res) => {
   console.log("Session ID:", req.sessionID);
   console.log("Full Session:", req.session);
   console.log("Session twitchData:", req.session?.twitchData);
-  
+
   if (!req.session?.twitchData) {
     console.log("=== NO SESSION DATA FOUND ===\n");
-    return res.status(404).json({ 
-      success: false, 
-      message: "No session data found" 
+    return res.status(404).json({
+      success: false,
+      message: "No session data found"
     });
   }
 
@@ -118,9 +135,9 @@ router.get("/auth/twitch/session-data", (req, res) => {
   };
 
   console.log("=== SENDING SESSION DATA ===\n");
-  return res.json({ 
-    success: true, 
-    ...twitchData 
+  return res.json({
+    success: true,
+    ...twitchData
   });
 });
 
@@ -180,7 +197,9 @@ router.get("/auth/twitch/refresh-token", async (req, res) => {
 
     req.session.twitchData.accessToken = encrypt(newTokenData.accessToken);
     req.session.twitchData.refreshToken = encrypt(newTokenData.refreshToken);
-    req.session.twitchData.expiresAt = new Date(Date.now() + newTokenData.expires_in * 1000).toISOString();
+    req.session.twitchData.expiresAt = new Date(
+      Date.now() + newTokenData.expires_in * 1000
+    ).toISOString();
 
     res.json({ success: true, message: "Token refreshed" });
   } catch (error) {
