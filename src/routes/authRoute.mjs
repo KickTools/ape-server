@@ -79,6 +79,7 @@ router.get("/auth/twitch", (req, res) => {
 });
 
 router.get("/auth/twitch/session-data", (req, res) => {
+  console.log("Session Data: ", req.session.twitchData);
   if (req.session.twitchData) {
     const twitchData = {
       ...req.session.twitchData,
