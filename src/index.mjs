@@ -42,10 +42,10 @@ app.use(
     resave: false, 
     saveUninitialized: true,
     cookie: {
-      httpOnly: true,  // Prevents JavaScript access to the cookie
-      secure: process.env.NODE_ENV === 'production',  // Ensure secure cookies for production (use HTTPS)
-      sameSite: 'None',  // Important for cross-site requests (e.g., redirects)
-      domain: '.squadw.online',  // Ensure cookie is set for your domain
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production', 
+      sameSite: 'None', 
+      domain: '.squadw.online', 
     }
   })
 );

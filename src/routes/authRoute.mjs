@@ -64,14 +64,16 @@ router.get("/auth/twitch/callback", async (req, res) => {
     res.cookie('access_token', accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: 'None',
+      domain: '.squadw.online',
       maxAge: 3600000 // 1 hour
     });
 
     res.cookie('refresh_token', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: 'None',
+      domain: '.squadw.online',
       maxAge: 604800000 // 7 days
     });
 
@@ -123,7 +125,8 @@ router.post("/auth/refresh-token", async (req, res) => {
     res.cookie('access_token', newAccessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      sameSite: 'None',
+      domain: '.squadw.online',
       maxAge: 3600000 // 1 hour
     });
 
