@@ -39,11 +39,10 @@ app.use(
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: true,
-    cookie: {
-      secure: process.env.NODE_ENV === 'production', // Set to true only in production (with HTTPS)
-      httpOnly: true, // Prevent JavaScript access to the cookie
-      sameSite: 'None', // Allow cross-origin cookies
-    },
+    cookie: { 
+      secure: true,    // Required for SameSite=None
+      sameSite: 'none' // Allows cross-origin cookies
+    }
   })
 );
 
