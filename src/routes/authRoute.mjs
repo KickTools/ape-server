@@ -19,14 +19,20 @@ router.get("/auth/login", (req, res) => {
 // Unified callback handler
 router.get("/auth/twitch/callback", async (req, res) => {
   try {
+    console.log("\n=== START CALLBACK ===");
+    console.log("Session ID:", req.sessionID);
+    console.log("Initial Session:", req.session);
+    
     const authorizationCode = req.query.code;
     const state = req.query.state;
     const isLoginFlow = state?.startsWith('login_');
 
     const tokens = await getTokens(authorizationCode);
     console.log("Got Tokens: ", tokens);
+    
     const userData = await fetchUserData(tokens.access_token);
     console.log("Got User Data: ", userData);
+    
     const followerCount = await fetchChannelFollowers(
       tokens.access_token,
       userData.id
@@ -43,21 +49,39 @@ router.get("/auth/twitch/callback", async (req, res) => {
       expiresAt: new Date(Date.now() + tokens.expires_in * 1000).toISOString()
     };
 
+    console.log("Session after setting data:", req.session);
+    
+    // Force session save
+    await new Promise((resolve, reject) => {
+      req.session.save((err) => {
+        if (err) {
+          console.error("Session save error:", err);
+          reject(err);
+        }
+        resolve();
+      });
+    });
+
+    console.log("Session after save:", req.session);
+
     if (isLoginFlow) {
       const existingViewer = await getViewerByUserId('twitch', userData.id);
       
       if (existingViewer) {
+        console.log("=== END CALLBACK (existing user) ===\n");
         res.redirect(`http://localhost:3000/login/callback?sessionId=${req.sessionID}`);
       } else {
+        console.log("=== END CALLBACK (new user) ===\n");
         res.redirect(`http://localhost:3000/connect`);
       }
     } else {
+      console.log("=== END CALLBACK (connect flow) ===\n");
       res.redirect(
         `http://localhost:3000/connect/callback?sessionId=${req.sessionID}`
       );
     }
   } catch (error) {
-    logger.error(`Error in Twitch callback: ${error.message}`);
+    console.error("Error in callback:", error);
     res.status(500).json({
       success: false,
       message: "Error processing Twitch callback",
@@ -73,9 +97,13 @@ router.get("/auth/twitch", (req, res) => {
 });
 
 router.get("/auth/twitch/session-data", (req, res) => {
-  console.log("Session Data: ", req.session.twitchData);
+  console.log("\n=== SESSION DATA REQUEST ===");
+  console.log("Session ID:", req.sessionID);
+  console.log("Full Session:", req.session);
+  console.log("Session twitchData:", req.session?.twitchData);
   
   if (!req.session?.twitchData) {
+    console.log("=== NO SESSION DATA FOUND ===\n");
     return res.status(404).json({ 
       success: false, 
       message: "No session data found" 
@@ -89,6 +117,7 @@ router.get("/auth/twitch/session-data", (req, res) => {
     refreshToken: decrypt(req.session.twitchData.refreshToken)
   };
 
+  console.log("=== SENDING SESSION DATA ===\n");
   return res.json({ 
     success: true, 
     ...twitchData 
