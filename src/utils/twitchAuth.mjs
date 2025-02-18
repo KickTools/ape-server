@@ -36,18 +36,9 @@ export const getTokens = async (code) => {
   };
 
   try {
-    // Add logging to debug the request
-    console.log('Requesting Twitch tokens with code:', code);
 
     const response = await axios.post(tokenUrl, querystring.stringify(params), {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    });
-
-    // Add logging to see the response structure
-    console.log('Twitch token response received:', {
-      hasAccessToken: !!response.data.access_token,
-      hasRefreshToken: !!response.data.refresh_token,
-      expiresIn: response.data.expires_in
     });
 
     return response.data;
@@ -65,20 +56,26 @@ export const getTokens = async (code) => {
 // Function to refresh the access token
 export const refreshTokenAccess = async (refreshToken) => {
   const tokenUrl = 'https://id.twitch.tv/oauth2/token';
+  
   const params = {
     client_id: TWITCH_CLIENT_ID,
     client_secret: TWITCH_CLIENT_SECRET,
-    refresh_token: refreshToken,
     grant_type: 'refresh_token',
+    refresh_token: refreshToken
   };
 
   try {
+
     const response = await axios.post(tokenUrl, querystring.stringify(params), {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     });
+
     return response.data;
   } catch (error) {
-    console.error('Error refreshing access token:', error.response?.data || error.message);
-    throw new Error('Failed to refresh access token');
+    console.error('Error refreshing tokens:', {
+      status: error.response?.status,
+      message: error.response?.data?.message || error.message
+    });
+    throw error;
   }
 };

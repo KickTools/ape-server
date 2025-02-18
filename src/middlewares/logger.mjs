@@ -21,7 +21,9 @@ const logger = winston.createLogger({
 });
 
 export function logUserActivity(req, res, next) {
-  logger.info(`${req.method} ${req.url} accessed by ${req.user ? req.user.id : "guest"}`);
+  const userId = req.user ? req.user.id : "guest";
+  const ip = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || (req.connection?.socket ? req.connection.socket.remoteAddress : null) || 'unknown';
+  logger.info(`${req.method} ${req.url} accessed by ${userId} from IP: ${ip}`);
   next();
 }
 

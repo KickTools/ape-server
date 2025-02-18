@@ -1,4 +1,3 @@
-// src/routes/dataReviewRoute.mjs
 import express from 'express';
 import { getAllProfiles, getProfileByEmail, getAllViewers, getViewerByUserId, getAllAuthorizations, getAuthorizationByUserId, getViewersList, getViewerProfile, checkAuthorization } from '../utils/dataReview.mjs';
 import { viewerCache } from '../utils/viewerCache.mjs';
@@ -23,7 +22,7 @@ router.get('/profiles/:email', async (req, res) => {
     const profile = await getProfileByEmail(req.params.email);
     res.json(profile);
   } catch (error) {
-    logger.error(`Error fetching profile: ${error.message}`);
+    logger.error(`Error fetching profile for email ${req.params.email}: ${error.message}`);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -46,7 +45,7 @@ router.get('/viewers/:platform/:userId', async (req, res) => {
     const viewer = await getViewerByUserId(platform, userId);
     res.json(viewer);
   } catch (error) {
-    logger.error(`Error fetching viewer: ${error.message}`);
+    logger.error(`Error fetching viewer for platform ${req.params.platform} and userId ${req.params.userId}: ${error.message}`);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -69,7 +68,7 @@ router.get('/authorizations/:platform/:userId', async (req, res) => {
     const authorization = await getAuthorizationByUserId(platform, userId);
     res.json(authorization);
   } catch (error) {
-    logger.error(`Error fetching authorization: ${error.message}`);
+    logger.error(`Error fetching authorization for platform ${req.params.platform} and userId ${req.params.userId}: ${error.message}`);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -99,7 +98,7 @@ router.get('/viewers', async (req, res) => {
 
     res.json(result);
   } catch (error) {
-    logger.error(`Error in viewers route: ${error.message}`);
+    logger.error(`Error in viewers route with query ${JSON.stringify(req.query)}: ${error.message}`);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -111,7 +110,7 @@ router.get('/viewers/:platform/:userId', async (req, res) => {
     const profile = await getViewerProfile(platform, userId);
     res.json(profile);
   } catch (error) {
-    logger.error(`Error in viewer profile route: ${error.message}`);
+    logger.error(`Error in viewer profile route for platform ${req.params.platform} and userId ${req.params.userId}: ${error.message}`);
     res.status(404).json({ error: 'Viewer not found' });
   }
 });
@@ -123,7 +122,7 @@ router.get('/auth/:platform/:userId', async (req, res) => {
     const authStatus = await checkAuthorization(platform, userId);
     res.json(authStatus);
   } catch (error) {
-    logger.error(`Error in authorization check route: ${error.message}`);
+    logger.error(`Error in authorization check route for platform ${req.params.platform} and userId ${req.params.userId}: ${error.message}`);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -154,7 +153,7 @@ router.get('/search/viewers', async (req, res) => {
       }))
     });
   } catch (error) {
-    console.error('Search error:', error);
+    logger.error(`Search error with query ${req.query.q} and limit ${req.query.limit}: ${error.message}`);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });

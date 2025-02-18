@@ -1,5 +1,6 @@
 // src/models/Profile.mjs
 import mongoose from 'mongoose';
+import logger from '../middlewares/logger.mjs'; // Import logger
 
 const profileSchema = new mongoose.Schema({
   id: { type: String, index: true },
@@ -46,6 +47,23 @@ const profileSchema = new mongoose.Schema({
 }, {
   timestamps: true,
   versionKey: false // Disable the version key
+});
+
+// Pre-save middleware to log the profile save attempt
+profileSchema.pre('save', function(next) {
+  logger.info(`Attempting to save profile with id: ${this.id}, email: ${this.email}, twitch login: ${this.twitch?.login}, kick username: ${this.kick?.username}`);
+  next();
+});
+
+// Post-save middleware to log successful saves
+profileSchema.post('save', function(doc) {
+  logger.info(`Profile saved successfully with id: ${doc.id}, email: ${doc.email}, twitch login: ${doc.twitch?.login}, kick username: ${doc.kick?.username}`);
+});
+
+// Post-save middleware to log save errors
+profileSchema.post('save', function(error, doc, next) {
+  logger.error(`Error saving profile with id: ${doc.id}, email: ${doc.email}, twitch login: ${doc.twitch?.login}, kick username: ${doc.kick?.username}: ${error.message}`);
+  next(error);
 });
 
 export const Profile = mongoose.model('Profile', profileSchema, "verify_viewer_profiles");

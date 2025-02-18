@@ -1,5 +1,3 @@
-// src/routes/authRoute.mjs
-
 // --- Imports ---
 import { Router } from "express"; // Express Router for handling routes
 import jwt from "jsonwebtoken"; // JSON Web Token for generating and verifying tokens
@@ -30,22 +28,20 @@ router.get("/auth/login", (req, res) => {
 router.get("/auth/twitch/callback", async (req, res) => {
   try {
     const authorizationCode = req.query.code;
-    console.log("Starting callback process with code:", authorizationCode);
+    const state = req.query.state;
 
     if (!authorizationCode) {
-      console.error("No authorization code received from Twitch");
+      logger.error("No authorization code received from Twitch");
       return res.redirect(`${process.env.FRONTEND_URL}/login/error`);
     }
 
     // Get tokens from Twitch
     const tokens = await getTokens(authorizationCode);
-    console.log("Successfully received tokens from Twitch");
 
     // Get user data
     const userData = await fetchUserData(tokens.access_token);
     const followerCount = await fetchChannelFollowers(tokens.access_token, userData.id);
     userData.followers_count = followerCount;
-    console.log("Successfully fetched user data");
 
     // Create JWT tokens
     const accessToken = jwt.sign(
@@ -64,8 +60,6 @@ router.get("/auth/twitch/callback", async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    console.log("JWT tokens created successfully");
-
     // Set cookies
     res.cookie('access_token', accessToken, {
       httpOnly: true,
@@ -81,12 +75,17 @@ router.get("/auth/twitch/callback", async (req, res) => {
       maxAge: 604800000 // 7 days
     });
 
-    console.log("Cookies set successfully");
+    // Determine redirect based on state
+    const isVerification = state?.startsWith('verify_');
+    const redirectPath = isVerification ? 'connect/callback' : 'login/callback';
+    
+    // Log new account creation (or login)
+    logger.info(`User ${userData.login} authenticated via Twitch.  Is Verification Flow: ${isVerification}`);
 
-    // Redirect to frontend
-    res.redirect(`${process.env.FRONTEND_URL}/login/callback`);
+    // Redirect to appropriate frontend route
+    res.redirect(`${process.env.FRONTEND_URL}/${redirectPath}`);
   } catch (error) {
-    console.error("Error in callback:", error);
+    logger.error("Error in callback:", error);
     res.redirect(`${process.env.FRONTEND_URL}/login/error`);
   }
 });
@@ -137,10 +136,6 @@ router.post("/auth/refresh-token", async (req, res) => {
 
 // Session data endpoint
 router.get("/auth/twitch/session-data", (req, res) => {
-  logger.info("\n=== SESSION DATA REQUEST ===");
-  logger.info("Session ID:", req.sessionID);
-  logger.info("Full Session:", req.session);
-  logger.info("Session twitchData:", req.session?.twitchData);
 
   if (!req.session?.twitchData) {
     logger.warn("=== NO SESSION DATA FOUND ===\n");
@@ -157,7 +152,6 @@ router.get("/auth/twitch/session-data", (req, res) => {
     refreshToken: decrypt(req.session.twitchData.refreshToken)
   };
 
-  logger.info("=== SENDING SESSION DATA ===\n");
   return res.json({
     success: true,
     ...twitchData
@@ -166,18 +160,34 @@ router.get("/auth/twitch/session-data", (req, res) => {
 
 // Save user data
 router.post("/auth/save", async (req, res) => {
-  const { twitchData, kickData } = req.body;
-
   try {
-    const result = await saveCombinedUserData(twitchData, kickData);
-    res.json({ success: true, message: "User data saved", user: result });
+    const { twitchData, kickData } = req.body;
+    const accessToken = req.cookies.access_token;
+    const refreshToken = req.cookies.refresh_token;
+
+    if (!accessToken || !refreshToken) {
+      return res.status(401).json({ success: false, message: "Missing authentication tokens", isAuthenticated: false });
+    }
+
+    // Decode JWT to verify authentication
+    const decodedAccess = jwt.verify(accessToken, JWT_SECRET);
+    const decodedRefresh = jwt.verify(refreshToken, JWT_REFRESH_SECRET);
+
+    const fullTwitchData = {
+      ...twitchData,
+      accessToken,
+      refreshToken: decodedRefresh.twitchRefreshToken,
+      expiresAt: decodedAccess.exp * 1000, // Convert JWT expiry to ms
+    };
+
+    const result = await saveCombinedUserData(fullTwitchData, kickData);
+
+    logger.info(`User data saved/updated for user ID: ${fullTwitchData.id}`); // Log user data save
+
+    res.json({ success: true, user: result, isAuthenticated: true });
   } catch (error) {
     logger.error("Error saving user data:", error);
-    res.status(500).json({
-      success: false,
-      message: "Error saving user data",
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: "Error saving user data", isAuthenticated: false, error: error.message });
   }
 });
 
@@ -211,12 +221,13 @@ router.get("/auth/failure", (req, res) => {
 
 router.get("/auth/user", async (req, res) => {
   try {
+   
     const accessToken = req.cookies.access_token;
     
     if (!accessToken) {
       return res.status(401).json({
         success: false,
-        message: "No access token"
+        message: "No access token found"
       });
     }
 
@@ -230,11 +241,12 @@ router.get("/auth/user", async (req, res) => {
         });
       }
 
-      res.json({
+      return res.json({
         success: true,
         user: decoded.user
       });
     } catch (error) {
+      console.error('JWT verification error:', error);
       if (error.name === 'TokenExpiredError') {
         return res.status(401).json({
           success: false,
@@ -245,7 +257,7 @@ router.get("/auth/user", async (req, res) => {
     }
   } catch (error) {
     console.error("Error in /auth/user:", error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Error getting user data",
       error: error.message
@@ -253,10 +265,104 @@ router.get("/auth/user", async (req, res) => {
   }
 });
 
-router.get("/auth/twitch", (req, res) => {
-  const state = `auth_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+// For initial verification/signup
+router.get("/auth/twitch/verify", (req, res) => {
+  const state = `verify_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   const authorizationUrl = getAuthorizationUrl(state);
   res.redirect(authorizationUrl);
+});
+
+// For regular login
+router.get("/auth/twitch/login", (req, res) => {
+  const state = `login_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const authorizationUrl = getAuthorizationUrl(state);
+  res.redirect(authorizationUrl);
+});
+
+router.post("/auth/refresh", async (req, res) => {
+  try {
+    const refreshToken = req.cookies.refresh_token;
+
+    if (!refreshToken) {
+      return res.status(401).json({
+        success: false,
+        message: "No refresh token provided"
+      });
+    }
+
+    try {
+      // Verify the refresh token
+      const decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET);
+      
+      if (decoded.type !== 'refresh') {
+        return res.status(401).json({
+          success: false,
+          message: "Invalid token type"
+        });
+      }
+
+      // Decrypt the stored Twitch refresh token
+      const twitchRefreshToken = decrypt(decoded.twitchRefreshToken);
+      
+      // Get new Twitch tokens using the refresh token
+      const newTwitchTokens = await refreshTwitchToken(twitchRefreshToken);
+      
+      // Get updated user data
+      const userData = await fetchUserData(newTwitchTokens.access_token);
+      const followerCount = await fetchChannelFollowers(newTwitchTokens.access_token, userData.id);
+      userData.followers_count = followerCount;
+
+      // Create new JWT tokens
+      const newAccessToken = jwt.sign(
+        { user: userData, type: 'access' },
+        JWT_SECRET,
+        { expiresIn: '1h' }
+      );
+
+      const newRefreshToken = jwt.sign(
+        { 
+          userId: userData.id, 
+          type: 'refresh', 
+          twitchRefreshToken: encrypt(newTwitchTokens.refresh_token) 
+        },
+        JWT_REFRESH_SECRET,
+        { expiresIn: '7d' }
+      );
+
+      // Set new cookies
+      res.cookie('access_token', newAccessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 3600000 // 1 hour
+      });
+
+      res.cookie('refresh_token', newRefreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 604800000 // 7 days
+      });
+
+      return res.json({
+        success: true,
+        user: userData
+      });
+
+    } catch (error) {
+      console.error('Token verification failed:', error);
+      return res.status(401).json({
+        success: false,
+        message: "Invalid refresh token"
+      });
+    }
+  } catch (error) {
+    console.error("Error in refresh:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error refreshing tokens"
+    });
+  }
 });
 
 // Logout endpoint
