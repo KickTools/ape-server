@@ -7,7 +7,7 @@ const router = express.Router();
 
 // Route to submit or update form data
 router.post('/form-data', async (req, res) => {
-  console.log("Received form data submission request");
+
   try {
     const { viewer, bitcoinAddress, contactAddress } = req.body;
 
@@ -50,10 +50,9 @@ router.post('/form-data', async (req, res) => {
 
 // Route to fetch form data
 router.get('/form-data/:twitchUserId', async (req, res) => {
-  console.log("Received form data fetch request");
+
   try {
     const { twitchUserId } = req.params;
-    console.log("Fetch for Twitch user ID:", twitchUserId);
 
     // Find the Viewer document based on the twitch user_id
     const viewerDoc = await Viewer.findOne({ 'twitch.user_id': twitchUserId });

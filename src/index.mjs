@@ -42,15 +42,21 @@ app.use(
   session({
     secret: process.env.SESSION_SECRET,
     resave: false,
-    saveUninitialized: false,
+    saveUninitialized: true,
     cookie: {
-      secure: process.env.NODE_ENV === "production",
-      sameSite: 'None',
-      httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000 // 24 hours
-    }
+      domain: '.squadw.online', // Or leave it empty for the current domain
+      path: '/',
+      secure: false, // true if HTTPS is used
+      sameSite: 'None', // Necessary for cross-origin requests
+      httpOnly: true, // Prevent access to cookies via JavaScript
+    },
   })
 );
+
+app.use((req, res, next) => {
+  console.log('Session Data:', req.session);
+  next();
+});
 
 // Initialize Passport
 app.use(passport.initialize());

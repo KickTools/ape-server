@@ -203,7 +203,6 @@ export async function getViewerByUserId(platform, userId) {
       };
     }
 
-    console.log('Transformed viewer data:', JSON.stringify(transformedViewer, null, 2));
     return transformedViewer;
   } catch (error) {
     logger.error(`Error fetching viewer with user ID ${userId} on platform ${platform}: ${error.message}`);
