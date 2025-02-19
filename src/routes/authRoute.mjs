@@ -1,4 +1,4 @@
-// --- Imports ---
+// src/routes/authRoute.mjs
 import { Router } from "express";
 import jwt from "jsonwebtoken";
 import { fetchUserData, fetchChannelFollowers } from "../utils/twitchApi.mjs";
@@ -6,7 +6,6 @@ import { saveCombinedUserData } from "../utils/saveUserData.mjs";
 import { getAuthorizationUrl, getTokens, refreshTokenAccess } from "../utils/twitchAuth.mjs";
 import { encrypt, decrypt } from "../utils/encryption.mjs"; 
 import logger from "../middlewares/logger.mjs"; 
-import verifyToken from "../middlewares/jwtToken.mjs"; 
 
 // --- Router Setup ---
 const router = Router();

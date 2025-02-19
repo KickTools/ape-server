@@ -1,17 +1,17 @@
 import "dotenv/config";
 import express from "express";
 import session from "express-session";
-import { logUserActivity } from "./middlewares/logger.mjs";
+import cookieParser from 'cookie-parser';
+import cors from "cors";
+import logger, { logUserActivity } from "./middlewares/logger.mjs";
 import authRoutes from "./routes/authRoute.mjs";
 import kickRoutes from "./routes/kickRoute.mjs";
 import dataReviewRoute from "./routes/dataReviewRoute.mjs";
 import dataSubmitRoute from "./routes/dataSubmitRoute.mjs";
 import analyticsRoute from "./routes/analyticsRoute.mjs";
 import { connectMongo } from "./services/mongo.mjs";
-import logger from "./middlewares/logger.mjs";
 import { kickRateLimiter } from "./middlewares/rateLimiter.mjs";
-import cookieParser from 'cookie-parser';
-import cors from "cors";
+import { verifyAccessToken } from "./middlewares/auth.mjs";
 
 const app = express();
 
@@ -57,10 +57,9 @@ app.use(logUserActivity);
 // Apply rate limiter middleware to the Kick routes
 app.use("/kick", kickRateLimiter, kickRoutes);
 
-// Routes
-app.use(authRoutes); // Assuming account creation happens in authRoutes
-
-
+// Apply authentication middleware to protect the routes
+app.use("/auth", authRoutes); // Public routes for authentication
+app.use(verifyAccessToken); // Protect routes below this line
 app.use("/data/retrieve", dataReviewRoute);
 app.use("/data/submit", dataSubmitRoute);
 app.use("/analytics", analyticsRoute);
@@ -69,6 +68,17 @@ app.use("/analytics", analyticsRoute);
 app.use((err, req, res, next) => {
   logger.error(`Error: ${err.message}`);
   res.status(500).send("Something went wrong!");
+});
+
+// Handle uncaught exceptions and rejections
+process.on('uncaughtException', (err) => {
+  logger.error(`Uncaught Exception: ${err.message}`);
+  process.exit(1); // Exit the process with failure
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error(`Unhandled Rejection at: ${promise}, reason: ${reason}`);
+  process.exit(1); // Exit the process with failure
 });
 
 const PORT = process.env.PORT || 9988;
