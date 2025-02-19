@@ -226,12 +226,12 @@ router.post("/logout", (req, res) => {
   const refreshTokenConfig = getRefreshTokenCookieConfig();
 
   res.clearCookie('access_token', { 
-    path: '/auth/twitch/',
+    path: '/',
     domain: accessTokenConfig.domain 
   });
 
   res.clearCookie('refresh_token', { 
-    path: '/auth/twitch/', 
+    path: '/', 
     domain: refreshTokenConfig.domain 
   });
 

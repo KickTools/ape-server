@@ -7,7 +7,7 @@ const cookieConfig = {
     secure: siteConfig.secure,
     sameSite: siteConfig.sameSite,
     domain: cookieDomain,
-    path: '/auth/twitch'
+    path: '/'
   },
   access: {
     maxAge: 3600000 // 1 hour
