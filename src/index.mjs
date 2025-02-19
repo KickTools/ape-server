@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import session from "express-session";
+import MongoStore from 'connect-mongo';
 import cookieParser from 'cookie-parser';
 import cors from "cors";
 import logger, { logUserActivity } from "./middlewares/logger.mjs";
@@ -14,6 +15,9 @@ import { kickRateLimiter } from "./middlewares/rateLimiter.mjs";
 import { verifyAccessToken } from "./middlewares/auth.mjs";
 
 const app = express();
+
+// Configure Express to trust proxy headers
+app.set('trust proxy', 1);
 
 app.use(cookieParser());
 
@@ -30,18 +34,23 @@ app.use(express.json()); // Add middleware to parse JSON bodies
 connectMongo()
   .then(() => {
     logger.info("Database initialized successfully");
+    console.log("Database initialized successfully");
   })
   .catch((err) => {
     logger.error("Failed to connect to MongoDB", err);
     process.exit(1); // Exit the process with failure
   });
 
-// Session middleware
+// Session middleware with MongoStore
 app.use(
   session({
     secret: process.env.SESSION_SECRET,
     resave: false, 
     saveUninitialized: true,
+    store: MongoStore.create({
+      mongoUrl: process.env.MONGO_URI,
+      collectionName: 'sessions',
+    }),
     cookie: {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production', 
@@ -57,12 +66,14 @@ app.use(logUserActivity);
 // Apply rate limiter middleware to the Kick routes
 app.use("/kick", kickRateLimiter, kickRoutes);
 
-// Apply authentication middleware to protect the routes
-app.use("/auth", authRoutes); // Public routes for authentication
+// Public routes for authentication
+app.use("/auth", authRoutes);
 
-app.use("/data/retrieve", verifyAccessToken, dataReviewRoute);
-app.use("/data/submit", verifyAccessToken, dataSubmitRoute);
-app.use("/analytics", verifyAccessToken, analyticsRoute);
+// Apply authentication middleware to protect the routes
+app.use(verifyAccessToken); // Protect routes below this line
+app.use("/data/retrieve", dataReviewRoute);
+app.use("/data/submit", dataSubmitRoute);
+app.use("/analytics", analyticsRoute);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
