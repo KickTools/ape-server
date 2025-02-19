@@ -222,8 +222,19 @@ router.get("/user", async (req, res) => {
 
 // Logout endpoint
 router.post("/logout", (req, res) => {
-  res.clearCookie('access_token');
-  res.clearCookie('refresh_token');
+  const accessTokenConfig = getAccessTokenCookieConfig();
+  const refreshTokenConfig = getRefreshTokenCookieConfig();
+
+  res.clearCookie('access_token', { 
+    path: '/auth/twitch/',
+    domain: accessTokenConfig.domain 
+  });
+
+  res.clearCookie('refresh_token', { 
+    path: '/auth/twitch/', 
+    domain: refreshTokenConfig.domain 
+  });
+
   res.json({ success: true, message: "Logged out successfully" });
 });
 

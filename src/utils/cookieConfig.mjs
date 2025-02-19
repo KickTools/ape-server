@@ -1,3 +1,4 @@
+// src/utils/cookieConfig.mjs
 const cookieDomain = process.env.NODE_ENV === 'production' ? '.squadw.online' : 'localhost';
 const siteConfig = process.env.NODE_ENV === 'production' ? { secure: true, sameSite: 'none' } : { secure: false, sameSite: 'lax' };
 const cookieConfig = {
@@ -6,6 +7,7 @@ const cookieConfig = {
     secure: siteConfig.secure,
     sameSite: siteConfig.sameSite,
     domain: cookieDomain,
+    path: '/auth/twitch'
   },
   access: {
     maxAge: 3600000 // 1 hour
