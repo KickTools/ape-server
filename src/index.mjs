@@ -6,6 +6,7 @@ import authRoutes from "./routes/authRoute.mjs";
 import kickRoutes from "./routes/kickRoute.mjs";
 import dataReviewRoute from "./routes/dataReviewRoute.mjs";
 import dataSubmitRoute from "./routes/dataSubmitRoute.mjs";
+import analyticsRoute from "./routes/analyticsRoute.mjs";
 import { connectMongo } from "./services/mongo.mjs";
 import logger from "./middlewares/logger.mjs";
 import { kickRateLimiter } from "./middlewares/rateLimiter.mjs";
@@ -62,6 +63,7 @@ app.use(authRoutes); // Assuming account creation happens in authRoutes
 
 app.use("/data/retrieve", dataReviewRoute);
 app.use("/data/submit", dataSubmitRoute);
+app.use("/analytics", analyticsRoute);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
