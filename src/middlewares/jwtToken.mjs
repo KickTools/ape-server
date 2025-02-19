@@ -4,7 +4,6 @@ import jwt from 'jsonwebtoken';
 const JWT_SECRET = process.env.JWT_SECRET;
 
 const verifyToken = (req, res, next) => {
-  // Get token from cookies instead of Authorization header
   const token = req.cookies.access_token;
 
   if (!token) {
@@ -14,7 +13,6 @@ const verifyToken = (req, res, next) => {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     
-    // Verify token type
     if (decoded.type !== 'access') {
       return res.status(401).json({ success: false, message: 'Invalid token type' });
     }

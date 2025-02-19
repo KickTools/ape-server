@@ -1,17 +1,16 @@
 // --- Imports ---
-import { Router } from "express"; // Express Router for handling routes
-import jwt from "jsonwebtoken"; // JSON Web Token for generating and verifying tokens
-import { fetchUserData, fetchChannelFollowers } from "../utils/twitchApi.mjs"; // Twitch API utilities
-import { saveCombinedUserData } from "../utils/saveUserData.mjs"; // Utility for saving combined user data
-import { getAuthorizationUrl, getTokens, refreshTokenAccess } from "../utils/twitchAuth.mjs"; // Twitch authentication utilities
-import { encrypt, decrypt } from "../utils/encryption.mjs"; // Encryption utilities
-import logger from "../middlewares/logger.mjs"; // Logger middleware
-import verifyToken from "../middlewares/jwtToken.mjs"; // JWT verification middleware
+import { Router } from "express";
+import jwt from "jsonwebtoken";
+import { fetchUserData, fetchChannelFollowers } from "../utils/twitchApi.mjs";
+import { saveCombinedUserData } from "../utils/saveUserData.mjs";
+import { getAuthorizationUrl, getTokens, refreshTokenAccess } from "../utils/twitchAuth.mjs";
+import { encrypt, decrypt } from "../utils/encryption.mjs"; 
+import logger from "../middlewares/logger.mjs"; 
+import verifyToken from "../middlewares/jwtToken.mjs"; 
 
 // --- Router Setup ---
 const router = Router();
 
-// JWT Secret - Make sure this is in your .env file
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET; 
 

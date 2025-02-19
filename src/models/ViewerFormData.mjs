@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
-import { Viewer } from './Viewer.mjs';  // Adjust the import path as necessary
-import logger from '../middlewares/logger.mjs'; // Import logger
+import { Viewer } from './Viewer.mjs';
+import logger from '../middlewares/logger.mjs';
 
 const viewerFormDataSchema = new mongoose.Schema({
     viewer: { type: mongoose.Schema.Types.ObjectId, ref: 'Viewer', required: true },

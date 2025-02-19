@@ -24,7 +24,7 @@ export async function saveKickUserData(userData) {
 
     // Save profile data
     let profile = await Profile.findOneAndUpdate(
-      { email: `${username}@kick.com` }, // Assuming email is not available, using username as a placeholder
+      { email: `${username}@kick.com` }, 
       {
         email: `${username}@kick.com`,
         kick: {

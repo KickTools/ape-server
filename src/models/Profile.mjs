@@ -1,6 +1,6 @@
 // src/models/Profile.mjs
 import mongoose from 'mongoose';
-import logger from '../middlewares/logger.mjs'; // Import logger
+import logger from '../middlewares/logger.mjs';
 
 const profileSchema = new mongoose.Schema({
   id: { type: String, index: true },

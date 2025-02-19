@@ -1,6 +1,6 @@
 // src/models/Authorization.mjs
 import mongoose from 'mongoose';
-import logger from '../middlewares/logger.mjs'; // Import logger
+import logger from '../middlewares/logger.mjs';
 
 const authorizationSchema = new mongoose.Schema({
     platform: { type: String, required: true },

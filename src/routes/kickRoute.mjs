@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { fetchKickUserData } from '../services/kickService.mjs';
-import { kickRateLimiter } from '../middlewares/rateLimiter.mjs'; // Import the rate limiter middleware
-import { saveKickUserData } from '../utils/saveUserData.mjs'; // Import the utility function
+import { kickRateLimiter } from '../middlewares/rateLimiter.mjs';
+import { saveKickUserData } from '../utils/saveUserData.mjs';
 import logger from '../middlewares/logger.mjs';
 
 const router = Router();
