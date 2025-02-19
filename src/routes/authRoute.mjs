@@ -15,21 +15,21 @@ const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
 // --- Routes ---
 
 // Regular login endpoint
-router.get("/auth/twitch/login", (req, res) => {
+router.get("/twitch/login", (req, res) => {
   const state = `login_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   const authorizationUrl = getAuthorizationUrl(state);
   res.redirect(authorizationUrl);
 });
 
 // For initial verification/signup
-router.get("/auth/twitch/verify", (req, res) => {
+router.get("/twitch/verify", (req, res) => {
   const state = `verify_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   const authorizationUrl = getAuthorizationUrl(state);
   res.redirect(authorizationUrl);
 });
 
 // Unified callback handler
-router.get("/auth/twitch/callback", async (req, res) => {
+router.get("/twitch/callback", async (req, res) => {
   try {
     const authorizationCode = req.query.code;
     const state = req.query.state;
@@ -97,7 +97,7 @@ router.get("/auth/twitch/callback", async (req, res) => {
 });
 
 // Refresh token endpoint
-router.post("/auth/refresh-token", async (req, res) => {
+router.post("/refresh-token", async (req, res) => {
   const refreshToken = req.cookies.refresh_token;
 
   if (!refreshToken) {
@@ -142,7 +142,7 @@ router.post("/auth/refresh-token", async (req, res) => {
 });
 
 // Session data endpoint
-router.get("/auth/twitch/session-data", (req, res) => {
+router.get("/twitch/session-data", (req, res) => {
 
   if (!req.session?.twitchData) {
     logger.warn("=== NO SESSION DATA FOUND ===\n");
@@ -166,7 +166,7 @@ router.get("/auth/twitch/session-data", (req, res) => {
 });
 
 // Save user data
-router.post("/auth/save", async (req, res) => {
+router.post("/save", async (req, res) => {
   try {
     const { twitchData, kickData } = req.body;
     const accessToken = req.cookies.access_token;
@@ -199,7 +199,7 @@ router.post("/auth/save", async (req, res) => {
 });
 
 // Refresh access token for session
-router.get("/auth/twitch/refresh-token", async (req, res) => {
+router.get("/twitch/refresh-token", async (req, res) => {
   try {
     const { refreshToken } = req.session.twitchData;
     const newTokenData = await refreshTokenAccess(decrypt(refreshToken));
@@ -222,11 +222,11 @@ router.get("/auth/twitch/refresh-token", async (req, res) => {
 });
 
 // Failure route
-router.get("/auth/failure", (req, res) => {
+router.get("/failure", (req, res) => {
   res.status(401).json({ success: false, message: "Authentication failed" });
 });
 
-router.get("/auth/user", async (req, res) => {
+router.get("/user", async (req, res) => {
   try {
    
     const accessToken = req.cookies.access_token;
@@ -273,7 +273,7 @@ router.get("/auth/user", async (req, res) => {
 });
 
 // Logout endpoint
-router.post("/auth/logout", (req, res) => {
+router.post("/logout", (req, res) => {
   res.clearCookie('access_token');
   res.clearCookie('refresh_token');
   res.json({ success: true, message: "Logged out successfully" });
