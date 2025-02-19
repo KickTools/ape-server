@@ -24,9 +24,3 @@ export const getRefreshTokenCookieConfig = () => ({
   ...cookieConfig.base,
   ...cookieConfig.refresh
 });
-
-console.log('Cookie Domain:', cookieDomain);
-console.log('Site Config:', siteConfig);
-console.log('Cookie Config:', cookieConfig);
-console.log('Access Token Cookie Config:', getAccessTokenCookieConfig());
-console.log('Refresh Token Cookie Config:', getRefreshTokenCookieConfig());
