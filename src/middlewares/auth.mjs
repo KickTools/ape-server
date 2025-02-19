@@ -19,7 +19,7 @@ export const verifyAccessToken = (req, res, next) => {
     }
 
     req.user = decoded.user; // Attach user data to request object
-    next(); // Continue to the next middleware or route handler
+    next();
   } catch (error) {
     console.error('JWT verification error:', error);
     if (error.name === 'TokenExpiredError') {
@@ -44,8 +44,8 @@ export const verifyRefreshToken = (req, res, next) => {
     }
 
     req.user = { userId: decoded.userId };
-    req.twitchRefreshToken = decrypt(decoded.twitchRefreshToken); // Decrypt Twitch refresh token
-    next(); // Continue to the next middleware or route handler
+    req.twitchRefreshToken = decrypt(decoded.twitchRefreshToken);
+    next();
   } catch (error) {
     console.error('JWT verification error:', error);
     if (error.name === 'TokenExpiredError') {

@@ -1,4 +1,3 @@
-// src/routes/authRoute.mjs
 import { Router } from "express";
 import jwt from "jsonwebtoken";
 import { fetchUserData, fetchChannelFollowers } from "../utils/twitchApi.mjs";
@@ -16,8 +15,15 @@ const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
 // --- Routes ---
 
 // Regular login endpoint
-router.get("/auth/login", (req, res) => {
-  const state = `login_${Date.now()}`; // Using timestamp instead of sessionID
+router.get("/auth/twitch/login", (req, res) => {
+  const state = `login_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const authorizationUrl = getAuthorizationUrl(state);
+  res.redirect(authorizationUrl);
+});
+
+// For initial verification/signup
+router.get("/auth/twitch/verify", (req, res) => {
+  const state = `verify_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   const authorizationUrl = getAuthorizationUrl(state);
   res.redirect(authorizationUrl);
 });
@@ -262,106 +268,6 @@ router.get("/auth/user", async (req, res) => {
       success: false,
       message: "Error getting user data",
       error: error.message
-    });
-  }
-});
-
-// For initial verification/signup
-router.get("/auth/twitch/verify", (req, res) => {
-  const state = `verify_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  const authorizationUrl = getAuthorizationUrl(state);
-  res.redirect(authorizationUrl);
-});
-
-// For regular login
-router.get("/auth/twitch/login", (req, res) => {
-  const state = `login_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  const authorizationUrl = getAuthorizationUrl(state);
-  res.redirect(authorizationUrl);
-});
-
-router.post("/auth/refresh", async (req, res) => {
-  try {
-    const refreshToken = req.cookies.refresh_token;
-
-    if (!refreshToken) {
-      return res.status(401).json({
-        success: false,
-        message: "No refresh token provided"
-      });
-    }
-
-    try {
-      // Verify the refresh token
-      const decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET);
-      
-      if (decoded.type !== 'refresh') {
-        return res.status(401).json({
-          success: false,
-          message: "Invalid token type"
-        });
-      }
-
-      // Decrypt the stored Twitch refresh token
-      const twitchRefreshToken = decrypt(decoded.twitchRefreshToken);
-      
-      // Get new Twitch tokens using the refresh token
-      const newTwitchTokens = await refreshTwitchToken(twitchRefreshToken);
-      
-      // Get updated user data
-      const userData = await fetchUserData(newTwitchTokens.access_token);
-      const followerCount = await fetchChannelFollowers(newTwitchTokens.access_token, userData.id);
-      userData.followers_count = followerCount;
-
-      // Create new JWT tokens
-      const newAccessToken = jwt.sign(
-        { user: userData, type: 'access' },
-        JWT_SECRET,
-        { expiresIn: '1h' }
-      );
-
-      const newRefreshToken = jwt.sign(
-        { 
-          userId: userData.id, 
-          type: 'refresh', 
-          twitchRefreshToken: encrypt(newTwitchTokens.refresh_token) 
-        },
-        JWT_REFRESH_SECRET,
-        { expiresIn: '7d' }
-      );
-
-      // Set new cookies
-      res.cookie('access_token', newAccessToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 3600000 // 1 hour
-      });
-
-      res.cookie('refresh_token', newRefreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 604800000 // 7 days
-      });
-
-      return res.json({
-        success: true,
-        user: userData
-      });
-
-    } catch (error) {
-      console.error('Token verification failed:', error);
-      return res.status(401).json({
-        success: false,
-        message: "Invalid refresh token"
-      });
-    }
-  } catch (error) {
-    console.error("Error in refresh:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Error refreshing tokens"
     });
   }
 });
