@@ -11,23 +11,37 @@ const viewerFormDataSchema = new mongoose.Schema({
     versionKey: false
 });
 
-// Add a pre-save middleware to log potential errors
-viewerFormDataSchema.pre('save', function(next) {
-    const doc = this;
-    ViewerFormData.findOne({ bitcoinAddress: doc.bitcoinAddress })
-        .then(existingDoc => {
-            if (existingDoc && !existingDoc._id.equals(doc._id)) {
-                const error = new Error('Bitcoin address must be unique');
-                logger.error(`Bitcoin address uniqueness violation: ${doc.bitcoinAddress}`);
-                next(error);
-            } else {
-                next();
-            }
-        })
-        .catch(err => {
-            logger.error(`Error during Bitcoin address uniqueness check: ${err.message}`);
-            next(err);
-        });
+// Create a custom error type for duplicate Bitcoin addresses
+class DuplicateBitcoinAddressError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'DuplicateBitcoinAddressError';
+        this.statusCode = 400;
+    }
+}
+
+// Static method to check for duplicate Bitcoin address
+viewerFormDataSchema.statics.checkDuplicateBitcoinAddress = async function(bitcoinAddress, excludeId = null) {
+    const query = { bitcoinAddress };
+    if (excludeId) {
+        query._id = { $ne: excludeId };
+    }
+    
+    const existing = await this.findOne(query);
+    if (existing) {
+        throw new DuplicateBitcoinAddressError('This Bitcoin address is already registered');
+    }
+    return true;
+};
+
+// Pre-validate middleware to check for duplicates
+viewerFormDataSchema.pre('validate', async function(next) {
+    try {
+        await ViewerFormData.checkDuplicateBitcoinAddress(this.bitcoinAddress, this._id);
+        next();
+    } catch (error) {
+        next(error);
+    }
 });
 
 // Add a post-save middleware to log successful saves
@@ -35,15 +49,5 @@ viewerFormDataSchema.post('save', function(doc) {
     logger.info(`ViewerFormData saved successfully with bitcoinAddress: ${doc.bitcoinAddress}`);
 });
 
-// Add a post-save middleware to log save errors
-viewerFormDataSchema.post('save', function(error, doc, next) {
-    if (error.name === 'MongoServerError' && error.code === 11000) {
-        logger.error(`Duplicate key error during ViewerFormData save: ${error.message}`);
-        next(new Error('Bitcoin address must be unique.'));
-    } else {
-        logger.error(`Error during ViewerFormData save: ${error.message}`);
-        next(error);
-    }
-});
-
 export const ViewerFormData = mongoose.model('ViewerFormData', viewerFormDataSchema, "verify_viewer_form_data");
+export { DuplicateBitcoinAddressError };

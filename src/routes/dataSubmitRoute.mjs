@@ -1,53 +1,89 @@
+// src/routes/dataSubmitRoute.mjs
 import express from 'express';
-import { ViewerFormData } from '../models/ViewerFormData.mjs';
+import { ViewerFormData, DuplicateBitcoinAddressError } from '../models/ViewerFormData.mjs';
 import { Viewer } from '../models/Viewer.mjs';
 import logger from '../middlewares/logger.mjs';
 
 const router = express.Router();
 
+// Helper function to handle errors
+const handleError = (error, res) => {
+  if (error instanceof DuplicateBitcoinAddressError) {
+      return res.status(400).json({ 
+          error: error.message,
+          code: 'DUPLICATE_BITCOIN_ADDRESS'
+      });
+  }
+  
+  if (error.code === 11000) {
+      return res.status(400).json({ 
+          error: 'This Bitcoin address is already registered',
+          code: 'DUPLICATE_BITCOIN_ADDRESS'
+      });
+  }
+  console.error(error);
+  logger.error(`Unexpected error: ${error.message}`);
+  return res.status(500).json({ 
+      error: 'Internal Server Error',
+      code: 'INTERNAL_ERROR'
+  });
+};
+
 // Route to submit or update form data
 router.post('/form-data', async (req, res) => {
   try {
-    const { viewer, bitcoinAddress, contactAddress } = req.body;
+      const { viewer, bitcoinAddress, contactAddress } = req.body;
 
-    // Check if the required fields are provided
-    if (!viewer || !bitcoinAddress || !contactAddress) {
-      logger.warn(`Missing required fields in form data submission. Viewer: ${viewer}, Bitcoin Address: ${bitcoinAddress}, Contact Address: ${contactAddress}`);
-      return res.status(400).json({ error: 'All fields are required' });
-    }
+      // Validate required fields
+      if (!viewer || !bitcoinAddress || !contactAddress) {
+          return res.status(400).json({ 
+              error: 'All fields are required',
+              code: 'MISSING_FIELDS',
+              fields: ['viewer', 'bitcoinAddress', 'contactAddress']
+          });
+      }
 
-    // Find the Viewer document based on the twitch user_id
-    const viewerDoc = await Viewer.findOne({ 'twitch.user_id': viewer });
-    if (!viewerDoc) {
-      logger.warn(`Viewer not found for twitch user_id: ${viewer}`);
-      return res.status(404).json({ error: 'Viewer not found' });
-    }
+      // Find the Viewer document
+      const viewerDoc = await Viewer.findOne({ 'twitch.user_id': viewer });
+      if (!viewerDoc) {
+          return res.status(404).json({ 
+              error: 'Viewer not found',
+              code: 'VIEWER_NOT_FOUND' 
+          });
+      }
 
-    // Find the ViewerFormData document based on the viewer ID
-    let formData = await ViewerFormData.findOne({ viewer: viewerDoc._id });
+      // Check for duplicate Bitcoin address before attempting save/update
+      const isIt = await ViewerFormData.checkDuplicateBitcoinAddress(bitcoinAddress);
 
-    if (formData) {
-      // Update existing form data
-      formData.bitcoinAddress = bitcoinAddress;
-      formData.contactAddress = contactAddress;
-      logger.info(`Updating form data for viewer: ${viewerDoc._id}`);
-    } else {
-      // Create new form data
-      formData = new ViewerFormData({
-        viewer: viewerDoc._id,
-        bitcoinAddress,
-        contactAddress
+      // Find existing form data or create new
+      let formData = await ViewerFormData.findOne({ viewer: viewerDoc._id });
+      
+      if (formData) {
+          // Update existing
+          formData.bitcoinAddress = bitcoinAddress;
+          formData.contactAddress = contactAddress;
+      } else {
+          // Create new
+          formData = new ViewerFormData({
+              viewer: viewerDoc._id,
+              bitcoinAddress,
+              contactAddress
+          });
+      }
+
+      await formData.save();
+      
+      return res.status(201).json({ 
+          message: 'Form data submitted successfully',
+          data: {
+              id: formData._id,
+              bitcoinAddress: formData.bitcoinAddress,
+              contactAddress: formData.contactAddress
+          }
       });
-      logger.info(`Creating new form data for viewer: ${viewerDoc._id}`);
-    }
 
-    // Save the form data to the database
-    await formData.save();
-
-    res.status(201).json({ message: 'Form data submitted successfully' });
   } catch (error) {
-    logger.error(`Error submitting form data: ${error.message}`);
-    res.status(500).json({ error: 'Internal Server Error' });
+      return handleError(error, res);
   }
 });
 

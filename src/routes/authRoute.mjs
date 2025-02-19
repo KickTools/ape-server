@@ -1,9 +1,12 @@
+// src/routes/authRoute.mjs
 import { Router } from "express";
 import jwt from "jsonwebtoken";
 import { fetchUserData, fetchChannelFollowers } from "../utils/twitchApi.mjs";
 import { saveCombinedUserData } from "../utils/saveUserData.mjs";
 import { getAuthorizationUrl, getTokens, refreshTokenAccess } from "../utils/twitchAuth.mjs";
+import { getAccessTokenCookieConfig, getRefreshTokenCookieConfig } from '../utils/cookieConfig.mjs';
 import { encrypt, decrypt } from "../utils/encryption.mjs"; 
+import { generateTokens, verifyAccessToken, verifyRefreshToken, verifyTwitchTokens } from '../middlewares/tokenAuth.mjs';
 import logger from "../middlewares/logger.mjs"; 
 
 // --- Router Setup ---
@@ -11,6 +14,9 @@ const router = Router();
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET; 
+
+const isProduction = process.env.NODE_ENV === "production";
+const redirectBase = isProduction ? process.env.FRONTEND_URL : process.env.BACKEND_URL;
 
 // --- Routes ---
 
@@ -36,7 +42,7 @@ router.get("/twitch/callback", async (req, res) => {
 
     if (!authorizationCode) {
       logger.error("No authorization code received from Twitch");
-      return res.redirect(`${process.env.FRONTEND_URL}/login/error`);
+      return res.redirect(`${redirectBase}/login/error`);
     }
 
     // Get tokens from Twitch
@@ -47,39 +53,12 @@ router.get("/twitch/callback", async (req, res) => {
     const followerCount = await fetchChannelFollowers(tokens.access_token, userData.id);
     userData.followers_count = followerCount;
 
-    // Create JWT tokens
-    const accessToken = jwt.sign(
-      { user: userData, type: 'access' },
-      JWT_SECRET,
-      { expiresIn: '1h' }
-    );
-
-    const refreshToken = jwt.sign(
-      { 
-        userId: userData.id, 
-        type: 'refresh', 
-        twitchRefreshToken: encrypt(tokens.refresh_token) 
-      },
-      JWT_REFRESH_SECRET,
-      { expiresIn: '7d' }
-    );
+    // Create JWT access and refresh tokens
+    const { accessToken, refreshToken } = generateTokens(userData, tokens.refresh_token);
 
     // Set cookies
-    res.cookie('access_token', accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'None',
-      domain: '.squadw.online',
-      maxAge: 3600000 // 1 hour
-    });
-
-    res.cookie('refresh_token', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'None',
-      domain: '.squadw.online',
-      maxAge: 604800000 // 7 days
-    });
+    res.cookie('access_token', accessToken, getAccessTokenCookieConfig());
+    res.cookie('refresh_token', refreshToken, getRefreshTokenCookieConfig());
 
     // Determine redirect based on state
     const isVerification = state?.startsWith('verify_');
@@ -89,50 +68,27 @@ router.get("/twitch/callback", async (req, res) => {
     logger.info(`User ${userData.login} authenticated via Twitch.  Is Verification Flow: ${isVerification}`);
 
     // Redirect to appropriate frontend route
-    res.redirect(`${process.env.FRONTEND_URL}/${redirectPath}`);
+    res.redirect(`${redirectBase}/${redirectPath}`);
   } catch (error) {
     logger.error("Error in callback:", error);
-    res.redirect(`${process.env.FRONTEND_URL}/login/error`);
+    res.redirect(`${redirectBase}/login/error`);
   }
 });
 
 // Refresh token endpoint
-router.post("/refresh-token", async (req, res) => {
-  const refreshToken = req.cookies.refresh_token;
-
-  if (!refreshToken) {
-    return res.status(401).json({ success: false, message: "No refresh token provided" });
-  }
-
+router.post("/refresh-token", verifyRefreshToken, async (req, res) => {
   try {
-    const decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET);
-
-    if (decoded.type !== 'refresh') {
-      return res.status(401).json({ success: false, message: "Invalid token type" });
-    }
-
-    // Refresh the Twitch token
-    const twitchRefreshToken = decrypt(decoded.twitchRefreshToken);
-    const newTwitchTokens = await refreshTokenAccess(twitchRefreshToken);
+    // Refresh Twitch tokens
+    const newTwitchTokens = await refreshTokenAccess(req.twitchRefreshToken);
     
     // Get latest user data
     const userData = await fetchUserData(newTwitchTokens.access_token);
     
-    // Generate new JWT access token
-    const newAccessToken = jwt.sign(
-      { user: userData, type: 'access' },
-      JWT_SECRET,
-      { expiresIn: '1h' }
-    );
+    // Generate new tokens using the middleware helper
+    const { accessToken } = generateTokens(userData, newTwitchTokens.refresh_token);
 
     // Set new access token in cookie
-    res.cookie('access_token', newAccessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'None',
-      domain: '.squadw.online',
-      maxAge: 3600000 // 1 hour
-    });
+    res.cookie('access_token', accessToken, getAccessTokenCookieConfig());
 
     res.json({ success: true, message: "Token refreshed successfully" });
   } catch (error) {
@@ -142,8 +98,7 @@ router.post("/refresh-token", async (req, res) => {
 });
 
 // Session data endpoint
-router.get("/twitch/session-data", (req, res) => {
-
+router.get("/twitch/session-data", verifyAccessToken, (req, res) => {
   if (!req.session?.twitchData) {
     logger.warn("=== NO SESSION DATA FOUND ===\n");
     return res.status(404).json({
@@ -152,7 +107,6 @@ router.get("/twitch/session-data", (req, res) => {
     });
   }
 
-  // Decrypt tokens before sending
   const twitchData = {
     ...req.session.twitchData,
     accessToken: decrypt(req.session.twitchData.accessToken),
@@ -166,35 +120,29 @@ router.get("/twitch/session-data", (req, res) => {
 });
 
 // Save user data
-router.post("/save", async (req, res) => {
+router.post("/save", verifyAccessToken, verifyRefreshToken, async (req, res) => {
   try {
     const { twitchData, kickData } = req.body;
-    const accessToken = req.cookies.access_token;
-    const refreshToken = req.cookies.refresh_token;
-
-    if (!accessToken || !refreshToken) {
-      return res.status(401).json({ success: false, message: "Missing authentication tokens", isAuthenticated: false });
-    }
-
-    // Decode JWT to verify authentication
-    const decodedAccess = jwt.verify(accessToken, JWT_SECRET);
-    const decodedRefresh = jwt.verify(refreshToken, JWT_REFRESH_SECRET);
 
     const fullTwitchData = {
       ...twitchData,
-      accessToken,
-      refreshToken: decodedRefresh.twitchRefreshToken,
-      expiresAt: decodedAccess.exp * 1000, // Convert JWT expiry to ms
+      accessToken: req.cookies.access_token,
+      refreshToken: req.twitchRefreshToken, // From middleware
+      expiresAt: req.user.exp * 1000, // From middleware
     };
 
     const result = await saveCombinedUserData(fullTwitchData, kickData);
-
-    logger.info(`User data saved/updated for user ID: ${fullTwitchData.id}`); // Log user data save
+    logger.info(`User data saved/updated for user ID: ${fullTwitchData.id}`);
 
     res.json({ success: true, user: result, isAuthenticated: true });
   } catch (error) {
     logger.error("Error saving user data:", error);
-    res.status(500).json({ success: false, message: "Error saving user data", isAuthenticated: false, error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: "Error saving user data", 
+      isAuthenticated: false, 
+      error: error.message 
+    });
   }
 });
 

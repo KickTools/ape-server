@@ -12,17 +12,16 @@ import dataSubmitRoute from "./routes/dataSubmitRoute.mjs";
 import analyticsRoute from "./routes/analyticsRoute.mjs";
 import { connectMongo } from "./services/mongo.mjs";
 import { kickRateLimiter } from "./middlewares/rateLimiter.mjs";
-import { verifyAccessToken } from "./middlewares/auth.mjs";
+import { verifyAccessToken } from "./middlewares/tokenAuth.mjs";
+import { getAccessTokenCookieConfig } from './utils/cookieConfig.mjs';
 
 const app = express();
+const corsOrigins = [process.env.FRONTEND_URL, process.env.BACKEND_URL];
 
-// Configure Express to trust proxy headers
 app.set('trust proxy', 1);
-
 app.use(cookieParser());
-
 app.use(cors({
-  origin: process.env.FRONTEND_URL,
+  origin: corsOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -51,13 +50,8 @@ app.use(
       mongoUrl: process.env.MONGO_URI,
       collectionName: 'sessions',
     }),
-    cookie: {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production', 
-      sameSite: 'None', 
-      domain: '.squadw.online', 
-    }
-  })
+    cookie: getAccessTokenCookieConfig()
+    })
 );
 
 // Logging middleware
@@ -78,7 +72,9 @@ app.use("/analytics", analyticsRoute);
 // Error handling middleware
 app.use((err, req, res, next) => {
   logger.error(`Error: ${err.message}`);
-  res.status(500).send("Something went wrong!");
+  if (!res.headersSent) {
+    res.status(500).send("Something went wrong!");
+  }
 });
 
 // Handle uncaught exceptions and rejections
