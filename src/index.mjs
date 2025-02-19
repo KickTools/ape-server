@@ -59,10 +59,10 @@ app.use("/kick", kickRateLimiter, kickRoutes);
 
 // Apply authentication middleware to protect the routes
 app.use("/auth", authRoutes); // Public routes for authentication
-app.use(verifyAccessToken); // Protect routes below this line
-app.use("/data/retrieve", dataReviewRoute);
-app.use("/data/submit", dataSubmitRoute);
-app.use("/analytics", analyticsRoute);
+
+app.use("/data/retrieve", verifyAccessToken, dataReviewRoute);
+app.use("/data/submit", verifyAccessToken, dataSubmitRoute);
+app.use("/analytics", verifyAccessToken, analyticsRoute);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
