@@ -1,6 +1,5 @@
 import express from 'express';
 import { getAllProfiles, getProfileByEmail, getAllViewers, getViewerByUserId, getAllAuthorizations, getAuthorizationByUserId, getViewersList, getViewerProfile, checkAuthorization } from '../utils/dataReview.mjs';
-import { viewerCache } from '../utils/viewerCache.mjs';
 import logger from '../middlewares/logger.mjs';
 
 const router = express.Router();
@@ -156,12 +155,6 @@ router.get('/search/viewers', async (req, res) => {
     logger.error(`Search error with query ${req.query.q} and limit ${req.query.limit}: ${error.message}`);
     res.status(500).json({ error: 'Internal Server Error' });
   }
-});
-
-// Get cache statistics
-router.get('/viewers/cache/stats', (req, res) => {
-  const stats = viewerCache.getCacheStats();
-  res.json(stats);
 });
 
 export default router;

@@ -3,34 +3,104 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Ensure the encryption key is 32 bytes
-const algorithm = 'aes-256-cbc';
-const secretKey = process.env.ENCRYPTION_SECRET;
+// Constants for encryption
+const ALGORITHM = 'aes-256-cbc';
+const SECRET_KEY = process.env.ENCRYPTION_SECRET;
+const IV_LENGTH = 16; // For CBC mode, IV length should be equal to block size (16 bytes)
 
-if (!secretKey) {
+// Validate encryption secret on startup
+if (!SECRET_KEY) {
   throw new Error('ENCRYPTION_SECRET is not defined in the environment variables');
 }
 
-if (secretKey.length !== 32) {
+if (Buffer.from(SECRET_KEY).length !== 32) {
   throw new Error('ENCRYPTION_SECRET must be exactly 32 bytes long');
 }
 
-// Function to encrypt data
+/**
+ * Encrypts text using AES-256-CBC
+ * @param {string} text - Text to encrypt
+ * @returns {string} Encrypted text in format: iv:encryptedData
+ */
 export const encrypt = (text) => {
-  const iv = crypto.randomBytes(16); // Generate a random IV for each encryption
-  const cipher = crypto.createCipheriv(algorithm, Buffer.from(secretKey), iv);
-  let encrypted = cipher.update(text);
-  encrypted = Buffer.concat([encrypted, cipher.final()]);
-  return iv.toString('hex') + ':' + encrypted.toString('hex');
+  try {
+    if (!text) {
+      throw new Error('Text to encrypt cannot be empty');
+    }
+
+    // Generate a random IV
+    const iv = crypto.randomBytes(IV_LENGTH);
+    
+    // Create cipher
+    const cipher = crypto.createCipheriv(
+      ALGORITHM, 
+      Buffer.from(SECRET_KEY), 
+      iv
+    );
+    
+    // Encrypt the text
+    let encrypted = cipher.update(text, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    
+    // Return IV and encrypted data concatenated
+    return `${iv.toString('hex')}:${encrypted}`;
+  } catch (error) {
+    throw new Error(`Encryption failed: ${error.message}`);
+  }
 };
 
-// Function to decrypt data
-export const decrypt = (text) => {
-  const textParts = text.split(':');
-  const iv = Buffer.from(textParts.shift(), 'hex');
-  const encryptedText = Buffer.from(textParts.join(':'), 'hex');
-  const decipher = crypto.createDecipheriv(algorithm, Buffer.from(secretKey), iv);
-  let decrypted = decipher.update(encryptedText);
-  decrypted = Buffer.concat([decrypted, cipher.final()]);
-  return decrypted.toString();
+/**
+ * Decrypts text using AES-256-CBC
+ * @param {string} encryptedData - Text to decrypt in format: iv:encryptedData
+ * @returns {string} Decrypted text
+ */
+export const decrypt = (encryptedData) => {
+  try {
+    if (!encryptedData) {
+      throw new Error('Encrypted data cannot be empty');
+    }
+
+    // Split IV and encrypted data
+    const [ivHex, encryptedText] = encryptedData.split(':');
+    
+    if (!ivHex || !encryptedText) {
+      throw new Error('Invalid encrypted data format');
+    }
+
+    // Convert hex to buffers
+    const iv = Buffer.from(ivHex, 'hex');
+    const encrypted = Buffer.from(encryptedText, 'hex');
+    
+    // Create decipher
+    const decipher = crypto.createDecipheriv(
+      ALGORITHM, 
+      Buffer.from(SECRET_KEY), 
+      iv
+    );
+    
+    // Decrypt the data
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    
+    return decrypted;
+  } catch (error) {
+    throw new Error(`Decryption failed: ${error.message}`);
+  }
+};
+
+// Optional: Add a function to validate the encryption setup
+export const validateEncryptionSetup = () => {
+  try {
+    const testText = 'Test encryption setup';
+    const encrypted = encrypt(testText);
+    const decrypted = decrypt(encrypted);
+    
+    if (decrypted !== testText) {
+      throw new Error('Encryption/decryption test failed');
+    }
+    
+    return true;
+  } catch (error) {
+    throw new Error(`Encryption setup validation failed: ${error.message}`);
+  }
 };

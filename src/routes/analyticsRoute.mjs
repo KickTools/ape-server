@@ -1,6 +1,9 @@
 import express from 'express';
 import { analyticsUtils } from '../utils/analyticsUtils.mjs';
+import { viewerCache } from '../utils/viewerCache.mjs';
 import logger from '../middlewares/logger.mjs';
+import { statsCache, GLOBAL_STATS_CACHE_KEY, DAILY_STATS_CACHE_KEY_PREFIX, CACHE_TTL_SECONDS } from '../utils/cache.mjs';
+
 
 const router = express.Router();
 
@@ -72,6 +75,77 @@ router.get('/range/:startDate/:endDate?', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Internal server error'
+    });
+  }
+});
+
+// Get cache statistics
+router.get('/viewers/cache/stats', (req, res) => {
+  const stats = viewerCache.getCacheStats();
+  res.json(stats);
+});
+
+// Global Stats Route with Caching
+router.get('/verification/global', async (req, res) => {
+  try {
+    let stats = statsCache.get(GLOBAL_STATS_CACHE_KEY);
+    
+    if (stats === undefined) {
+      const result = await analyticsUtils.getGlobalStats();
+      if (!result.success) {
+        return res.status(500).json(result);
+      }
+      
+      stats = result.data;
+      statsCache.set(GLOBAL_STATS_CACHE_KEY, stats, CACHE_TTL_SECONDS);
+      logger.info("Global stats cache miss. Data fetched from database.");
+    } else {
+      logger.info("Global stats cache hit.");
+    }
+
+    return res.json({ success: true, data: stats });
+  } catch (error) {
+    logger.error(`Error in verification global stats endpoint: ${error.message}`);
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Internal server error'
+    });
+  }
+});
+
+// Daily Stats Route with Caching
+router.get('/verification/daily', async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Date parameter is required (YYYY-MM-DD)' 
+      });
+    }
+
+    const cacheKey = DAILY_STATS_CACHE_KEY_PREFIX + date;
+    let stats = statsCache.get(cacheKey);
+
+    if (stats === undefined) {
+      const result = await analyticsUtils.getDailyStats(date);
+      if (!result.success) {
+        return res.status(500).json(result);
+      }
+      
+      stats = result.data;
+      statsCache.set(cacheKey, stats, CACHE_TTL_SECONDS);
+      logger.info(`Daily stats cache miss for ${date}. Data fetched from database.`);
+    } else {
+      logger.info(`Daily stats cache hit for ${date}.`);
+    }
+
+    return res.json({ success: true, data: stats });
+  } catch (error) {
+    logger.error(`Error in verification daily stats endpoint: ${error.message}`);
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Internal server error' 
     });
   }
 });

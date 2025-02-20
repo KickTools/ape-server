@@ -15,23 +15,11 @@ function validateTwitchData(userData, authData) {
   const requiredUserFields = ["id", "login", "display_name"];
   const requiredAuthFields = ["accessToken", "refreshToken", "expiresAt"];
 
-  const missingUserFields = requiredUserFields.filter(
-    (field) => !userData[field]
-  );
-  const missingAuthFields = requiredAuthFields.filter(
-    (field) => !authData[field]
-  );
+  const missingUserFields = requiredUserFields.filter(field => !userData[field]);
+  const missingAuthFields = requiredAuthFields.filter(field => !authData[field]);
 
-  if (missingUserFields.length > 0) {
-    throw new Error(
-      `Missing required Twitch user fields: ${missingUserFields.join(", ")}`
-    );
-  }
-
-  if (missingAuthFields.length > 0) {
-    throw new Error(
-      `Missing required Twitch auth fields: ${missingAuthFields.join(", ")}`
-    );
+  if (missingUserFields.length > 0 || missingAuthFields.length > 0) {
+    throw new Error("Missing required fields for Twitch data");
   }
 }
 
@@ -42,39 +30,31 @@ function validateKickData(userData) {
   }
 
   const requiredFields = ["user_id", "username"];
-  const missingFields = requiredFields.filter((field) => !userData[field]);
+  const missingFields = requiredFields.filter(field => !userData[field]);
 
   if (missingFields.length > 0) {
-    throw new Error(
-      `Missing required Kick fields: ${missingFields.join(", ")}`
-    );
+    throw new Error("Missing required Kick fields");
   }
 }
 
 export async function saveTwitchUserData(userData, authData) {
+  const startTime = Date.now();
   try {
-    // Validate input data
     validateTwitchData(userData, authData);
 
-    // Encrypt tokens before saving
-    const encryptedAccessToken = encrypt(authData.accessToken);
-    const encryptedRefreshToken = encrypt(authData.refreshToken);
-
-    // Find existing authorization or create a new one
-    let authorization = await Authorization.findOneAndUpdate(
+    const authorization = await Authorization.findOneAndUpdate(
       { platform: "twitch", user_id: userData.id },
       {
         platform: "twitch",
         user_id: userData.id,
-        access_token: encryptedAccessToken,
-        refresh_token: encryptedRefreshToken,
+        access_token: encrypt(authData.accessToken),
+        refresh_token: encrypt(authData.refreshToken),
         expires_at: authData.expiresAt
       },
       { new: true, upsert: true }
     );
 
-    // Save profile data
-    let profile = await Profile.findOneAndUpdate(
+    const profile = await Profile.findOneAndUpdate(
       { email: userData.email || `${userData.login.toLowerCase()}@twitch.tv` },
       {
         $set: {
@@ -96,8 +76,7 @@ export async function saveTwitchUserData(userData, authData) {
       { new: true, upsert: true }
     );
 
-    // Save or update viewer data
-    let viewer = await Viewer.findOneAndUpdate(
+    const viewer = await Viewer.findOneAndUpdate(
       {
         $or: [
           { "twitch.user_id": userData.id },
@@ -118,13 +97,18 @@ export async function saveTwitchUserData(userData, authData) {
       { new: true, upsert: true }
     );
 
-    logger.info(
-      `Twitch user ${userData.display_name} has been updated in the database`
-    );
+    logger.info("Twitch user data saved", {
+      userId: userData.id,
+      duration: Date.now() - startTime
+    });
+
     return viewer;
   } catch (error) {
-    logger.error(`Error saving Twitch user data: ${error.message}`);
-    throw new Error(`Failed to save Twitch user data: ${error.message}`);
+    logger.error("Failed to save Twitch user data", {
+      error: error.message,
+      duration: Date.now() - startTime
+    });
+    throw error;
   }
 }
 
@@ -215,20 +199,30 @@ export async function saveKickUserData(userData, existingViewer = null) {
 }
 
 export async function saveCombinedUserData(twitchData, kickData) {
+  const startTime = Date.now();
   try {
-    // First save Twitch data since it's more reliable
-    const twitchResult = await saveTwitchUserData(twitchData.user, {
-      accessToken: twitchData.accessToken,
-      refreshToken: twitchData.refreshToken,
-      expiresAt: twitchData.expiresAt
+    const { user, accessToken, refreshToken, expiresAt } = twitchData;
+    
+    const twitchResult = await saveTwitchUserData(user, {
+      accessToken,
+      refreshToken,
+      expiresAt
     });
 
-    // Then update the same viewer document with Kick data
     const kickResult = await saveKickUserData(kickData, twitchResult);
+
+    logger.info("Combined user data saved", {
+      twitchId: user.id,
+      kickId: kickData.user_id,
+      duration: Date.now() - startTime
+    });
 
     return kickResult.viewer;
   } catch (error) {
-    logger.error(`Error saving combined user data: ${error.message}`);
-    throw new Error(`Failed to save combined user data: ${error.message}`);
+    logger.error("Failed to save combined user data", {
+      error: error.message,
+      duration: Date.now() - startTime
+    });
+    throw error;
   }
 }

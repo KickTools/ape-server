@@ -11,10 +11,8 @@ import logger from "../middlewares/logger.mjs";
 
 // --- Router Setup ---
 const router = Router();
-
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET; 
-
 const isProduction = process.env.NODE_ENV === "production";
 const redirectBase = isProduction ? process.env.FRONTEND_URL : process.env.BACKEND_URL;
 
@@ -36,63 +34,65 @@ router.get("/twitch/verify", (req, res) => {
 
 // Unified callback handler
 router.get("/twitch/callback", async (req, res) => {
+  const startTime = Date.now();
   try {
     const authorizationCode = req.query.code;
     const state = req.query.state;
 
     if (!authorizationCode) {
-      logger.error("No authorization code received from Twitch");
+      logger.error("Missing authorization code from Twitch");
       return res.redirect(`${redirectBase}/login/error`);
     }
 
-    // Get tokens from Twitch
     const tokens = await getTokens(authorizationCode);
-
-    // Get user data
     const userData = await fetchUserData(tokens.access_token);
     const followerCount = await fetchChannelFollowers(tokens.access_token, userData.id);
     userData.followers_count = followerCount;
 
-    // Create JWT access and refresh tokens
     const { accessToken, refreshToken } = generateTokens(userData, tokens.refresh_token);
-
-    // Set cookies
     res.cookie('access_token', accessToken, getAccessTokenCookieConfig());
     res.cookie('refresh_token', refreshToken, getRefreshTokenCookieConfig());
 
-    // Determine redirect based on state
     const isVerification = state?.startsWith('verify_');
     const redirectPath = isVerification ? 'connect/callback' : 'login/callback';
     
-    // Log new account creation (or login)
-    logger.info(`User ${userData.login} authenticated via Twitch.  Is Verification Flow: ${isVerification}`);
+    logger.info(`Authentication successful`, {
+      userId: userData.id,
+      isVerification,
+      duration: Date.now() - startTime
+    });
 
-    // Redirect to appropriate frontend route
     res.redirect(`${redirectBase}/${redirectPath}`);
   } catch (error) {
-    logger.error("Error in callback:", error);
+    logger.error("Callback error", {
+      error: error.message,
+      duration: Date.now() - startTime
+    });
     res.redirect(`${redirectBase}/login/error`);
   }
 });
 
 // Refresh token endpoint
 router.post("/refresh-token", verifyRefreshToken, async (req, res) => {
+  const startTime = Date.now();
   try {
-    // Refresh Twitch tokens
     const newTwitchTokens = await refreshTokenAccess(req.twitchRefreshToken);
-    
-    // Get latest user data
     const userData = await fetchUserData(newTwitchTokens.access_token);
-    
-    // Generate new tokens using the middleware helper
     const { accessToken } = generateTokens(userData, newTwitchTokens.refresh_token);
 
-    // Set new access token in cookie
     res.cookie('access_token', accessToken, getAccessTokenCookieConfig());
+
+    logger.info("Token refresh successful", {
+      userId: userData.id,
+      duration: Date.now() - startTime
+    });
 
     res.json({ success: true, message: "Token refreshed successfully" });
   } catch (error) {
-    logger.error("Error refreshing token:", error);
+    logger.error("Token refresh error", {
+      error: error.message,
+      duration: Date.now() - startTime
+    });
     res.status(401).json({ success: false, message: "Invalid refresh token" });
   }
 });
@@ -100,7 +100,7 @@ router.post("/refresh-token", verifyRefreshToken, async (req, res) => {
 // Session data endpoint
 router.get("/twitch/session-data", verifyAccessToken, (req, res) => {
   if (!req.session?.twitchData) {
-    logger.warn("=== NO SESSION DATA FOUND ===\n");
+    logger.warn("Missing session data");
     return res.status(404).json({
       success: false,
       message: "No session data found"
@@ -121,27 +121,52 @@ router.get("/twitch/session-data", verifyAccessToken, (req, res) => {
 
 // Save user data
 router.post("/save", verifyAccessToken, verifyRefreshToken, async (req, res) => {
+  const startTime = Date.now();
+  
   try {
     const { twitchData, kickData } = req.body;
-
+    const accessToken = req.cookies.access_token;
+    const decodedAccessToken = jwt.decode(accessToken);
+    
     const fullTwitchData = {
-      ...twitchData,
-      accessToken: req.cookies.access_token,
-      refreshToken: req.twitchRefreshToken, // From middleware
-      expiresAt: req.user.exp * 1000, // From middleware
+      user: {
+        ...twitchData.user,
+        ...decodedAccessToken.user
+      },
+      accessToken: accessToken,
+      refreshToken: req.twitchRefreshToken,
+      expiresAt: decodedAccessToken.exp * 1000
     };
 
-    const result = await saveCombinedUserData(fullTwitchData, kickData);
-    logger.info(`User data saved/updated for user ID: ${fullTwitchData.id}`);
+    logger.info('Starting save operation', {
+      userId: fullTwitchData.user.id,
+      hasTwitchData: Boolean(twitchData),
+      hasKickData: Boolean(kickData)
+    });
 
-    res.json({ success: true, user: result, isAuthenticated: true });
+    const result = await saveCombinedUserData(fullTwitchData, kickData);
+    
+    logger.info(`Save operation complete`, {
+      userId: fullTwitchData.user.id,
+      duration: Date.now() - startTime
+    });
+
+    res.json({ 
+      success: true, 
+      user: result, 
+      isAuthenticated: true 
+    });
   } catch (error) {
-    logger.error("Error saving user data:", error);
+    logger.error('Save operation failed', {
+      error: error.message,
+      userId: req?.user?.id,
+      duration: Date.now() - startTime
+    });
+
     res.status(500).json({ 
       success: false, 
       message: "Error saving user data", 
-      isAuthenticated: false, 
-      error: error.message 
+      isAuthenticated: false
     });
   }
 });
@@ -234,7 +259,7 @@ router.post("/logout", (req, res) => {
     path: '/', 
     domain: refreshTokenConfig.domain 
   });
-
+  logger.info("User logged out");
   res.json({ success: true, message: "Logged out successfully" });
 });
 

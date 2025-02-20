@@ -1,11 +1,12 @@
+// src/models/Analytics.mjs
 import mongoose from 'mongoose';
 import logger from "../middlewares/logger.mjs";
 
 const verifyViewerStatsSchema = new mongoose.Schema({
-    totalViewers: { type: Number, default: 0 },
-    lastUpdated: { type: Date, default: Date.now }
+  totalViewers: { type: Number, default: 0 },
+  lastUpdated: { type: Date, default: Date.now }
 }, {
-    timestamps: true
+  timestamps: true
 });
 
 const verifyViewerDailyStatsSchema = new mongoose.Schema({

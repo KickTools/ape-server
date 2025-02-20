@@ -1,8 +1,8 @@
 import "dotenv/config";
 import express from "express";
 import session from "express-session";
-import MongoStore from 'connect-mongo';
-import cookieParser from 'cookie-parser';
+import MongoStore from "connect-mongo";
+import cookieParser from "cookie-parser";
 import cors from "cors";
 import logger, { logUserActivity } from "./middlewares/logger.mjs";
 import authRoutes from "./routes/authRoute.mjs";
@@ -13,80 +13,124 @@ import analyticsRoute from "./routes/analyticsRoute.mjs";
 import { connectMongo } from "./services/mongo.mjs";
 import { kickRateLimiter } from "./middlewares/rateLimiter.mjs";
 import { verifyAccessToken } from "./middlewares/tokenAuth.mjs";
-import { getAccessTokenCookieConfig } from './utils/cookieConfig.mjs';
+import { getAccessTokenCookieConfig } from "./utils/cookieConfig.mjs";
 
 const app = express();
 const corsOrigins = [process.env.FRONTEND_URL, process.env.BACKEND_URL];
 
-app.set('trust proxy', 1);
+app.set("trust proxy", 1);
 app.use(cookieParser());
-app.use(cors({
-  origin: corsOrigins,
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+app.use(
+  cors({
+    origin: corsOrigins,
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
+  })
+);
 
 app.use(express.json()); // Add middleware to parse JSON bodies
+
+// Performance monitoring middleware
+app.use((req, res, next) => {
+  const startTime = Date.now();
+  const requestId = Math.random().toString(36).substring(7);
+
+  // Store the request ID for correlation
+  req.requestId = requestId;
+
+  res.on("finish", () => {
+    const duration = Date.now() - startTime;
+    if (duration > 1000) {
+      // Only log requests taking more than 1 second
+      logger.warn("Slow request detected", {
+        requestId,
+        method: req.method,
+        path: req.path,
+        duration,
+        status: res.statusCode
+      });
+    }
+  });
+
+  next();
+});
 
 // Initialize MongoDB connection
 connectMongo()
   .then(() => {
-    logger.info("Database initialized successfully");
-    console.log("Database initialized successfully");
+    logger.info("Database connection established");
   })
   .catch((err) => {
-    logger.error("Failed to connect to MongoDB", err);
-    process.exit(1); // Exit the process with failure
+    logger.error("Database connection failed", {
+      error: err.message
+    });
+    process.exit(1);
   });
 
-// Session middleware with MongoStore
+// Session configuration
 app.use(
   session({
     secret: process.env.SESSION_SECRET,
-    resave: false, 
+    resave: false,
     saveUninitialized: true,
     store: MongoStore.create({
       mongoUrl: process.env.MONGO_URI,
-      collectionName: 'sessions',
+      collectionName: "sessions"
     }),
     cookie: getAccessTokenCookieConfig()
-    })
+  })
 );
 
-// Logging middleware
-app.use(logUserActivity);
-
-// Apply rate limiter middleware to the Kick routes
+// Routes
 app.use("/kick", kickRateLimiter, kickRoutes);
-
-// Public routes for authentication
 app.use("/auth", authRoutes);
-
-// Apply authentication middleware to protect the routes
-app.use(verifyAccessToken); // Protect routes below this line
+app.use("/analytics", analyticsRoute);
+app.use(verifyAccessToken);
 app.use("/data/retrieve", dataReviewRoute);
 app.use("/data/submit", dataSubmitRoute);
-app.use("/analytics", analyticsRoute);
 
-// Error handling middleware
+// Error handling
 app.use((err, req, res, next) => {
-  logger.error(`Error: ${err.message}`);
-  if (!res.headersSent) {
-    res.status(500).send("Something went wrong!");
-  }
+  const errorId = Math.random().toString(36).substring(7);
+
+  logger.error("Unhandled error", {
+    errorId,
+    path: req.path,
+    method: req.method,
+    error: err.message,
+    requestId: req.requestId
+  });
+
+  res.status(500).json({
+    success: false,
+    message: "Internal server error",
+    errorId,
+    ...(process.env.NODE_ENV === "development" ? { error: err.message } : {})
+  });
 });
 
-// Handle uncaught exceptions and rejections
-process.on('uncaughtException', (err) => {
-  logger.error(`Uncaught Exception: ${err.message}`);
-  process.exit(1); // Exit the process with failure
+// Global error handlers
+process.on("uncaughtException", (err) => {
+  logger.error("Uncaught Exception", {
+    error: err.message,
+    stack: err.stack
+  });
+  process.exit(1);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error(`Unhandled Rejection at: ${promise}, reason: ${reason}`);
-  process.exit(1); // Exit the process with failure
+process.on("unhandledRejection", (reason, promise) => {
+  logger.error("Unhandled Rejection", {
+    error: reason instanceof Error ? reason.message : reason
+  });
+  process.exit(1);
 });
 
 const PORT = process.env.PORT || 9988;
-app.listen(PORT, () => logger.info(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  logger.info(`Server started`, {
+    port: PORT,
+    environment: process.env.NODE_ENV,
+    timestamp: new Date().toISOString()
+  });
+});
