@@ -4,16 +4,18 @@ import session from "express-session";
 import MongoStore from "connect-mongo";
 import cookieParser from "cookie-parser";
 import cors from "cors";
-import logger, { logUserActivity } from "./middlewares/logger.mjs";
+import logger from "./middlewares/logger.mjs";
 import authRoutes from "./routes/authRoute.mjs";
 import kickRoutes from "./routes/kickRoute.mjs";
+import leaderboardRoute from "./routes/leaderboardRoute.mjs";
 import dataReviewRoute from "./routes/dataReviewRoute.mjs";
 import dataSubmitRoute from "./routes/dataSubmitRoute.mjs";
 import analyticsRoute from "./routes/analyticsRoute.mjs";
 import { connectMongo } from "./services/mongo.mjs";
-import { kickRateLimiter } from "./middlewares/rateLimiter.mjs";
+import { kickRateLimiter, leaderboardRateLimiter } from "./middlewares/rateLimiter.mjs";
 import { verifyAccessToken } from "./middlewares/tokenAuth.mjs";
 import { getAccessTokenCookieConfig } from "./utils/cookieConfig.mjs";
+import { startLeaderboardScheduler } from "./schedulers/leaderboardScheduler.mjs";
 
 const app = express();
 const corsOrigins = [process.env.FRONTEND_URL, process.env.BACKEND_URL];
@@ -60,6 +62,10 @@ app.use((req, res, next) => {
 connectMongo()
   .then(() => {
     logger.info("Database connection established");
+
+    // Start the leaderboard scheduler after DB connection is successful
+    startLeaderboardScheduler();
+    logger.info("Leaderboard scheduler started");
   })
   .catch((err) => {
     logger.error("Database connection failed", {
@@ -84,6 +90,7 @@ app.use(
 
 // Routes
 app.use("/kick", kickRateLimiter, kickRoutes);
+app.use("/leaderboard", leaderboardRateLimiter, leaderboardRoute);
 app.use("/auth", authRoutes);
 app.use("/analytics", analyticsRoute);
 app.use(verifyAccessToken);
