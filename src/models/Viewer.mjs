@@ -60,36 +60,6 @@ viewerSchema.post("save", function (error, doc, next) {
   next(error);
 });
 
-// Analytics middleware
-viewerSchema.post("save", async function(doc) {
-  try {
-    if (doc.isNew) {  // Only run this for new viewers
-      const today = new Date().toISOString().split('T')[0];
-
-      // Update global stats - increment the total count
-      await VerifyViewerGlobalStats.findOneAndUpdate(
-        {},  // empty filter to match the single document
-        { 
-          $inc: { totalViewers: 1 },
-          $set: { lastUpdated: new Date() }
-        },
-        { upsert: true }
-      );
-
-      // Update daily stats - increment today's count
-      await VerifyViewerDailyStats.updateOne(
-        { date: today },
-        { $inc: { viewersAdded: 1 } },
-        { upsert: true }
-      );
-
-      logger.info(`Analytics updated for new viewer: ${doc._id}`);
-    }
-  } catch (error) {
-    logger.error(`Failed to update analytics for viewer ${doc._id}: ${error.message}`);
-  }
-});
-
 export const Viewer = mongoose.model(
   "Viewer",
   viewerSchema,

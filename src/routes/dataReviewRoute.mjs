@@ -1,5 +1,6 @@
 import express from 'express';
 import { getAllProfiles, getProfileByEmail, getAllViewers, getViewerByUserId, getAllAuthorizations, getAuthorizationByUserId, getViewersList, getViewerProfile, checkAuthorization } from '../utils/dataReview.mjs';
+import { viewerCache } from '../utils/viewerCache.mjs';
 import logger from '../middlewares/logger.mjs';
 
 const router = express.Router();

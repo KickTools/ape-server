@@ -1,10 +1,14 @@
 // src/utils/saveUserData.mjs
+import crypto from "crypto";
+import { encrypt } from "../utils/encryption.mjs";
+import logger from "../middlewares/logger.mjs";
 import { Viewer } from "../models/Viewer.mjs";
 import { Profile } from "../models/Profile.mjs";
 import { Authorization } from "../models/Authorization.mjs";
-import logger from "../middlewares/logger.mjs";
-import crypto from "crypto";
-import { encrypt } from "../utils/encryption.mjs";
+import { updateViewerAnalytics } from "./analyticsUtils.mjs";
+
+
+
 
 // Helper function to validate Twitch data
 function validateTwitchData(userData, authData) {
@@ -96,6 +100,8 @@ export async function saveTwitchUserData(userData, authData) {
       },
       { new: true, upsert: true }
     );
+
+    await updateViewerAnalytics(); 
 
     logger.info("Twitch user data saved", {
       userId: userData.id,

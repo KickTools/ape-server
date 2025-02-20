@@ -1,5 +1,6 @@
 // src/utils/analyticsUtils.mjs
 import { VerifyViewerGlobalStats, VerifyViewerDailyStats } from '../models/Analytics.mjs';
+import { Viewer } from "../models/Viewer.mjs";
 import logger from '../middlewares/logger.mjs';
 
 export const analyticsUtils = {
@@ -73,3 +74,41 @@ export const analyticsUtils = {
     }
   }
 };
+
+export async function updateViewerAnalytics() {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const startOfDay = new Date(today);
+    const endOfDay = new Date(today);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // Count total viewers
+    const totalViewers = await Viewer.countDocuments();
+
+    // Count viewers created today
+    const viewersAddedToday = await Viewer.countDocuments({
+      createdAt: { $gte: startOfDay, $lte: endOfDay }
+    });
+
+    // Update global stats
+    await VerifyViewerGlobalStats.findOneAndUpdate(
+      {},
+      {
+        $set: { totalViewers, lastUpdated: new Date() }
+      },
+      { upsert: true }
+    );
+
+    // Update daily stats
+    await VerifyViewerDailyStats.updateOne(
+      { date: today },
+      { $set: { viewersAdded: viewersAddedToday } },
+      { upsert: true }
+    );
+
+    logger.info(`Analytics updated: totalViewers=${totalViewers}, viewersAddedToday=${viewersAddedToday}`);
+  } catch (error) {
+    logger.error(`Failed to update analytics: ${error.message}`);
+    throw error;
+  }
+}
