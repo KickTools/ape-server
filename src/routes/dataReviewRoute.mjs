@@ -1,6 +1,8 @@
 import express from 'express';
 import { getAllProfiles, getProfileByEmail, getAllViewers, getViewerByUserId, getAllAuthorizations, getAuthorizationByUserId, getViewersList, getViewerProfile, checkAuthorization } from '../utils/dataReview.mjs';
 import { viewerCache } from '../utils/viewerCache.mjs';
+import { ViewerFormData } from '../models/ViewerFormData.mjs';
+import { Viewer } from '../models/Viewer.mjs';
 import logger from '../middlewares/logger.mjs';
 
 const router = express.Router();
@@ -138,19 +140,41 @@ router.get('/search/viewers', async (req, res) => {
 
     const results = await viewerCache.search(query, parseInt(limit.toString()));
     
+    const viewerIds = results.map(viewer => viewer._id);
+    const formData = await ViewerFormData.find({ 
+      viewer: { $in: viewerIds }
+    }).lean();
+
+    const formDataMap = new Map(
+      formData.map(data => [data.viewer.toString(), {
+        bitcoinAddress: data.bitcoinAddress,
+        contactAddress: data.contactAddress
+      }])
+    );
+
     res.json({
-      results: results.map(viewer => ({
-        id: viewer._id,
-        name: viewer.name,
-        twitch: viewer.twitch ? {
-          username: viewer.twitch.username,
-          verified: viewer.twitch.verified
-        } : undefined,
-        kick: viewer.kick ? {
-          username: viewer.kick.username,
-          verified: viewer.kick.verified
-        } : undefined
-      }))
+      results: results.map(viewer => {
+
+        return {
+          id: viewer._id,
+          name: viewer.name,
+          twitch: viewer.twitch ? {
+            username: viewer.twitch.username,
+            verified: viewer.twitch.verified,
+            profilePic: viewer.twitch.profile?.twitch?.profile_image_url || 'N/A',
+            url: viewer.twitch.username ? `https://twitch.tv/${viewer.twitch.username}` : undefined
+          } : undefined,
+          kick: viewer.kick ? {
+            username: viewer.kick.username,
+            verified: viewer.kick.verified,
+            profilePic: viewer.kick.profile?.kick?.profile_pic || 'N/A',
+            url: viewer.kick.username ? `https://kick.com/${viewer.kick.username}` : undefined,
+            twitter: viewer.kick.profile?.kick?.social_links?.twitter
+          } : undefined,
+          bitcoinAddress: formDataMap.get(viewer._id.toString())?.bitcoinAddress,
+          contactAddress: formDataMap.get(viewer._id.toString())?.contactAddress
+        };
+      })
     });
   } catch (error) {
     logger.error(`Search error with query ${req.query.q} and limit ${req.query.limit}: ${error.message}`);

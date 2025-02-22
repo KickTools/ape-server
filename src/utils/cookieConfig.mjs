@@ -1,4 +1,6 @@
 // src/utils/cookieConfig.mjs
+const SEVEN_DAYS_IN_MS = 604800000; // 7 days
+
 const cookieDomain = process.env.NODE_ENV === 'production' ? '.squadw.online' : 'localhost';
 const siteConfig = process.env.NODE_ENV === 'production' ? { secure: true, sameSite: 'none' } : { secure: false, sameSite: 'lax' };
 const cookieConfig = {
@@ -10,10 +12,10 @@ const cookieConfig = {
     path: '/'
   },
   access: {
-    maxAge: 3600000 // 1 hour
+    maxAge: SEVEN_DAYS_IN_MS // 7 days
   },
   refresh: {
-    maxAge: 604800000 // 7 days
+    maxAge: SEVEN_DAYS_IN_MS // 7 days
   }
 };
 

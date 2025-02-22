@@ -5,13 +5,15 @@ import logger from "../middlewares/logger.mjs";
 import { encrypt, decrypt } from './encryption.mjs';
 
 const JWT_SECRET = process.env.JWT_SECRET || "default-secret-for-testing";
+const SEVEN_DAYS_IN_SECONDS = 7 * 24 * 60 * 60;
+const SEVEN_DAYS_IN_MS = SEVEN_DAYS_IN_SECONDS * 1000;
 
 export const generateSessionToken = (userId) => {
     if (!JWT_SECRET) throw new Error("JWT_SECRET is not defined");
     const payload = {
         user_id: userId,
         iat: Math.floor(Date.now() / 1000), // Issued Time
-        exp: Math.floor(Date.now() / 1000) + 1 * 60 * 60 // Expires in 1 hour
+        exp: Math.floor(Date.now() / 1000) + SEVEN_DAYS_IN_SECONDS // Expires in 7 days
     };
     return jwt.sign(payload, JWT_SECRET, { algorithm: "HS256" });
 };
@@ -20,7 +22,7 @@ export const getSessionCookieConfig = () => ({
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
-    maxAge: 1 * 60 * 60 * 1000, // 1 hour
+    maxAge: SEVEN_DAYS_IN_MS, // 7 days
 });
 
 export const saveTwitchSession = async (tokens, userData, expiresAt) => {

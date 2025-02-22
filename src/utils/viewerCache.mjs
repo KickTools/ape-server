@@ -24,26 +24,28 @@ class ViewerCache {
   async refreshCache() {
     try {
       const viewers = await Viewer.find()
-        .populate('twitch.profile')
-        .populate('kick.profile');
-
-      // Clear existing cache and search index
+        .populate({
+          path: 'twitch.profile',
+          select: 'twitch.profile_image_url' // Nested field
+        })
+        .populate({
+          path: 'kick.profile',
+          select: 'kick.profile_pic kick.social_links.twitter' // Nested fields
+        });
+  
       this.cache.clear();
       this.searchIndex.clear();
-
-      // Populate cache and search index
+  
       viewers.forEach(viewer => {
         this.cache.set(viewer._id.toString(), viewer);
         this.indexViewer(viewer);
       });
-
+  
       this.lastRefresh = new Date();
-
     } catch (error) {
       logger.error('Failed to refresh viewer cache:', error);
     }
   }
-
   indexViewer(viewer) {
     const searchableStrings = [
       viewer.name,
