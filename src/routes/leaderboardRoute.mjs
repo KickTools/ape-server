@@ -21,11 +21,8 @@ router.get('/chat-leaderboard', async (req, res) => {
     const cacheKey = `leaderboard:page:${page}:limit:${limit}:sortBy:${sortBy}:sortOrder:${sortOrder}`;
     const cachedData = statsCache.get(cacheKey);
     if (cachedData) {
-      logger.info('Serving leaderboard from cache', { cacheKey });
       return res.json(cachedData);
     }
-
-    logger.info('Querying leaderboard from DB', { page, limit, sortBy, sortOrder });
 
     const sortOptions = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
     const skip = (page - 1) * limit;
@@ -40,8 +37,6 @@ router.get('/chat-leaderboard', async (req, res) => {
 
     const [data, total] = await Promise.all([dataPromise, totalPromise]);
 
-    logger.info('Query completed', { dataLength: data.length, total });
-
     const response = {
       data,
       pagination: {
@@ -53,7 +48,6 @@ router.get('/chat-leaderboard', async (req, res) => {
     };
 
     statsCache.set(cacheKey, response, CACHE_TTL_SECONDS);
-    logger.info('Cached leaderboard data', { cacheKey });
 
     return res.json({ success: true, data: response });
   } catch (error) {

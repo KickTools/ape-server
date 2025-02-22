@@ -11,7 +11,7 @@ const viewerSchema = new mongoose.Schema(
       username: { type: String },
       verified: { type: Boolean, default: false },
       verified_at: { type: Date },
-      auth: { type: mongoose.Schema.Types.ObjectId, ref: "Authorization" },
+      session: { type: mongoose.Schema.Types.ObjectId, ref: "Session" },
       profile: { type: mongoose.Schema.Types.ObjectId, ref: "Profile" }
     },
     kick: {
@@ -19,7 +19,7 @@ const viewerSchema = new mongoose.Schema(
       username: { type: String },
       verified: { type: Boolean, default: false },
       verified_at: { type: Date },
-      auth: { type: mongoose.Schema.Types.ObjectId, ref: "Authorization" },
+      session: { type: mongoose.Schema.Types.ObjectId, ref: "Session" },
       profile: { type: mongoose.Schema.Types.ObjectId, ref: "Profile" }
     }
   },

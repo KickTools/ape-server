@@ -1,3 +1,4 @@
+// src/index.mjs
 import "dotenv/config";
 import express from "express";
 import session from "express-session";
@@ -12,8 +13,8 @@ import dataReviewRoute from "./routes/dataReviewRoute.mjs";
 import dataSubmitRoute from "./routes/dataSubmitRoute.mjs";
 import analyticsRoute from "./routes/analyticsRoute.mjs";
 import { connectMongo } from "./services/mongo.mjs";
-import { kickRateLimiter, leaderboardRateLimiter } from "./middlewares/rateLimiter.mjs";
-import { verifyAccessToken } from "./middlewares/tokenAuth.mjs";
+import { verifySessionToken } from "./middlewares/sessionAuth.mjs";
+import { kickRateLimiter, leaderboardRateLimiter, analyticsRateLimiter } from "./middlewares/rateLimiter.mjs";
 import { getAccessTokenCookieConfig } from "./utils/cookieConfig.mjs";
 import { startLeaderboardScheduler } from "./schedulers/leaderboardScheduler.mjs";
 
@@ -89,13 +90,12 @@ app.use(
 );
 
 // Routes
-app.use("/kick", kickRateLimiter, kickRoutes);
-app.use("/leaderboard", leaderboardRateLimiter, leaderboardRoute);
-app.use("/auth", authRoutes);
-app.use("/analytics", analyticsRoute);
-app.use(verifyAccessToken);
-app.use("/data/retrieve", dataReviewRoute);
-app.use("/data/submit", dataSubmitRoute);
+app.use("/auth", authRoutes); // Apply to all /auth routes
+app.use("/kick", kickRateLimiter, verifySessionToken, kickRoutes);
+app.use("/leaderboard", leaderboardRateLimiter, leaderboardRoute); 
+app.use("/analytics", analyticsRateLimiter, analyticsRoute);
+app.use("/data/retrieve", verifySessionToken, dataReviewRoute);
+app.use("/data/submit", verifySessionToken, dataSubmitRoute); 
 
 // Error handling
 app.use((err, req, res, next) => {

@@ -52,7 +52,6 @@ export async function saveKickUserData(userData) {
       { new: true, upsert: true }
     );
 
-    logger.info(`User ${username} has been verified and data saved in the database`);
     return { username, key };
   } catch (error) {
     logger.error(`Error saving Kick user data: ${error.message}`);

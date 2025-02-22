@@ -38,7 +38,7 @@ class ViewerCache {
       });
 
       this.lastRefresh = new Date();
-      logger.info(`Viewer cache refreshed at ${this.lastRefresh}`);
+
     } catch (error) {
       logger.error('Failed to refresh viewer cache:', error);
     }

@@ -44,10 +44,5 @@ viewerFormDataSchema.pre('validate', async function(next) {
     }
 });
 
-// Add a post-save middleware to log successful saves
-viewerFormDataSchema.post('save', function(doc) {
-    logger.info(`ViewerFormData saved successfully with bitcoinAddress: ${doc.bitcoinAddress}`);
-});
-
 export const ViewerFormData = mongoose.model('ViewerFormData', viewerFormDataSchema, "verify_viewer_form_data");
 export { DuplicateBitcoinAddressError };

@@ -155,8 +155,7 @@ export async function getAllViewers() {
   }
 }
 
-// Utility function to get a single viewer by user ID for a specific platform
-export async function getViewerByUserId(platform, userId) {
+export async function getAllViewerDataByUserId(platform, userId) {
   try {
     const query = {};
     query[`${platform}.user_id`] = userId;
@@ -202,6 +201,77 @@ export async function getViewerByUserId(platform, userId) {
         profileData: transformedViewer.kick.profile
       };
     }
+
+    return transformedViewer;
+  } catch (error) {
+    logger.error(`Error fetching viewer with user ID ${userId} on platform ${platform}: ${error.message}`);
+    throw error;
+  }
+}
+
+// Utility function to get a single viewer by user ID for a specific platform
+export async function getViewerByUserId(platform, userId) {
+  try {
+    const query = {};
+    query[`${platform}.user_id`] = userId;
+
+    const viewer = await Viewer.findOne(query)
+      .populate({
+        path: `${platform}.profile`,
+        model: 'Profile'
+      })
+      .populate({
+        path: `${platform === 'twitch' ? 'kick.profile' : 'twitch.profile'}`,
+        model: 'Profile'
+      });
+
+    if (!viewer) {
+      throw new Error(`No viewer found for ${platform} user ID ${userId}`);
+    }
+
+    // Transform the data to match the frontend interface
+    const transformedViewer = {
+      twitch: viewer.twitch?.profile?.twitch 
+        ? {
+            user_id: viewer.twitch.user_id,
+            login: viewer.twitch.profile.twitch.login,
+            display_name: viewer.twitch.profile.twitch.display_name,
+            type: viewer.twitch.profile.twitch.type,
+            broadcaster_type: viewer.twitch.profile.twitch.broadcaster_type,
+            description: viewer.twitch.profile.twitch.description,
+            profile_image_url: viewer.twitch.profile.twitch.profile_image_url,
+            offline_image_url: viewer.twitch.profile.twitch.offline_image_url,
+            view_count: viewer.twitch.profile.twitch.view_count,
+            followers_count: viewer.twitch.profile.twitch.followers_count,
+            email: viewer.twitch.profile.twitch.email,
+            created_at: viewer.twitch.profile.twitch.created_at,
+          }
+        : null,
+      kick: viewer.kick?.profile?.kick
+        ? {
+            id: viewer.kick.profile.kick.id,
+            user_id: viewer.kick.profile.kick.user_id,
+            slug: viewer.kick.profile.kick.slug,
+            chatroom_id: viewer.kick.profile.kick.chatroom_id,
+            username: viewer.kick.profile.kick.username,
+            profile_pic: viewer.kick.profile.kick.profile_pic,
+            bio: viewer.kick.profile.kick.bio,
+            is_banned: viewer.kick.profile.kick.is_banned,
+            vod_enabled: viewer.kick.profile.kick.vod_enabled,
+            subscription_enabled: viewer.kick.profile.kick.subscription_enabled,
+            is_affiliate: viewer.kick.profile.kick.is_affiliate,
+            is_verified: viewer.kick.profile.kick.is_verified,
+            followers_count: viewer.kick.profile.kick.followers_count,
+            banner_image_url: viewer.kick.profile.kick.banner_image_url,
+            created_at: viewer.kick.profile.kick.created_at,
+            social_links: viewer.kick.profile.kick.social_links || {}
+          }
+        : null
+    };
+
+    // Remove null values
+    if (!transformedViewer.twitch) delete transformedViewer.twitch;
+    if (!transformedViewer.kick) delete transformedViewer.kick;
 
     return transformedViewer;
   } catch (error) {

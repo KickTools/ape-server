@@ -1,62 +1,22 @@
-// src/utils/saveUserData.mjs
-import crypto from "crypto";
-import { encrypt } from "../utils/encryption.mjs";
 import logger from "../middlewares/logger.mjs";
 import { Viewer } from "../models/Viewer.mjs";
 import { Profile } from "../models/Profile.mjs";
-import { Authorization } from "../models/Authorization.mjs";
-import { updateViewerAnalytics } from "./analyticsUtils.mjs";
+import { Session } from "../models/Session.mjs";
 
-
-
-
-// Helper function to validate Twitch data
-function validateTwitchData(userData, authData) {
-  if (!userData || !authData) {
-    throw new Error("Missing Twitch user or auth data");
-  }
-
-  const requiredUserFields = ["id", "login", "display_name"];
-  const requiredAuthFields = ["accessToken", "refreshToken", "expiresAt"];
-
-  const missingUserFields = requiredUserFields.filter(field => !userData[field]);
-  const missingAuthFields = requiredAuthFields.filter(field => !authData[field]);
-
-  if (missingUserFields.length > 0 || missingAuthFields.length > 0) {
-    throw new Error("Missing required fields for Twitch data");
-  }
-}
-
-// Helper function to validate Kick data
-function validateKickData(userData) {
-  if (!userData) {
-    throw new Error("Missing Kick user data");
-  }
-
-  const requiredFields = ["user_id", "username"];
-  const missingFields = requiredFields.filter(field => !userData[field]);
-
-  if (missingFields.length > 0) {
-    throw new Error("Missing required Kick fields");
-  }
-}
-
-export async function saveTwitchUserData(userData, authData) {
+export async function saveTwitchUserData(userData) {
   const startTime = Date.now();
   try {
-    validateTwitchData(userData, authData);
+    if (!userData || !userData.user_id || !userData.login || !userData.display_name) {
+      throw new Error("Missing required Twitch user data fields");
+    }
 
-    const authorization = await Authorization.findOneAndUpdate(
-      { platform: "twitch", user_id: userData.id },
-      {
-        platform: "twitch",
-        user_id: userData.id,
-        access_token: encrypt(authData.accessToken),
-        refresh_token: encrypt(authData.refreshToken),
-        expires_at: authData.expiresAt
-      },
-      { new: true, upsert: true }
-    );
+    const session = await Session.findOne({
+      platform: "twitch",
+      user_id: userData.user_id
+    });
+    if (!session) {
+      throw new Error("Session record not found for Twitch user");
+    }
 
     const profile = await Profile.findOneAndUpdate(
       { email: userData.email || `${userData.login.toLowerCase()}@twitch.tv` },
@@ -83,30 +43,23 @@ export async function saveTwitchUserData(userData, authData) {
     const viewer = await Viewer.findOneAndUpdate(
       {
         $or: [
-          { "twitch.user_id": userData.id },
+          { "twitch.user_id": userData.user_id },
           { "twitch.username": userData.login.toLowerCase() }
         ]
       },
       {
         $set: {
           name: userData.display_name,
-          "twitch.user_id": userData.id,
+          "twitch.user_id": userData.user_id,
           "twitch.username": userData.login.toLowerCase(),
           "twitch.verified": true,
           "twitch.verified_at": new Date(),
-          "twitch.auth": authorization._id,
+          "twitch.session": session._id,
           "twitch.profile": profile._id
         }
       },
       { new: true, upsert: true }
     );
-
-    await updateViewerAnalytics(); 
-
-    logger.info("Twitch user data saved", {
-      userId: userData.id,
-      duration: Date.now() - startTime
-    });
 
     return viewer;
   } catch (error) {
@@ -120,27 +73,21 @@ export async function saveTwitchUserData(userData, authData) {
 
 export async function saveKickUserData(userData, existingViewer = null) {
   try {
-    // Validate input data
-    validateKickData(userData);
+    if (!userData || !userData.user_id || !userData.username) {
+      throw new Error("Missing required Kick user data fields");
+    }
 
     const { user_id, username } = userData;
 
-    // Generate a unique key for the user
-    const key = crypto.randomBytes(16).toString("hex");
+    const session = await Session.findOne({
+      platform: "kick",
+      user_id: user_id.toString()
+    });
+    if (!session) {
+      throw new Error("Session record not found for Kick user");
+    }
 
-    // Save authorization data
-    let authorization = await Authorization.findOneAndUpdate(
-      { platform: "kick", user_id: user_id.toString() },
-      { access_token: key },
-      {
-        new: true,
-        upsert: true,
-        setDefaultsOnInsert: true
-      }
-    );
-
-    // Save profile data
-    let profile = await Profile.findOneAndUpdate(
+    const profile = await Profile.findOneAndUpdate(
       { "kick.username": username.toLowerCase() },
       {
         $set: {
@@ -169,7 +116,6 @@ export async function saveKickUserData(userData, existingViewer = null) {
       { new: true, upsert: true }
     );
 
-    // Update existing viewer or create new one
     const query = existingViewer
       ? { _id: existingViewer._id }
       : {
@@ -179,7 +125,7 @@ export async function saveKickUserData(userData, existingViewer = null) {
           ]
         };
 
-    let viewer = await Viewer.findOneAndUpdate(
+    const viewer = await Viewer.findOneAndUpdate(
       query,
       {
         $set: {
@@ -187,17 +133,14 @@ export async function saveKickUserData(userData, existingViewer = null) {
           "kick.username": username.toLowerCase(),
           "kick.verified": true,
           "kick.verified_at": new Date(),
-          "kick.auth": authorization._id,
+          "kick.session": session._id,
           "kick.profile": profile._id
         }
       },
       { new: true, upsert: true }
     );
 
-    logger.info(
-      `Kick user ${username} has been verified and data saved in the database`
-    );
-    return { viewer, key };
+    return { viewer };
   } catch (error) {
     logger.error(`Error saving Kick user data: ${error.message}`);
     throw new Error(`Failed to save Kick user data: ${error.message}`);
@@ -206,19 +149,26 @@ export async function saveKickUserData(userData, existingViewer = null) {
 
 export async function saveCombinedUserData(twitchData, kickData) {
   const startTime = Date.now();
-  try {
-    const { user, accessToken, refreshToken, expiresAt } = twitchData;
-    
-    const twitchResult = await saveTwitchUserData(user, {
-      accessToken,
-      refreshToken,
-      expiresAt
-    });
+  let twitchResult;
+  let kickResult;
 
-    const kickResult = await saveKickUserData(kickData, twitchResult);
+  try {
+
+    if (twitchData && twitchData.user) {
+      const twitchUser = twitchData.user;
+      twitchResult = await saveTwitchUserData(twitchUser);
+    } else {
+      logger.warn("Twitch data missing or incomplete, skipping Twitch save");
+    }
+
+    if (kickData) {
+      kickResult = await saveKickUserData(kickData, twitchResult);
+    } else {
+      throw new Error("Kick data is required");
+    }
 
     logger.info("Combined user data saved", {
-      twitchId: user.id,
+      twitchId: twitchResult ? twitchResult.twitch.user_id : "N/A",
       kickId: kickData.user_id,
       duration: Date.now() - startTime
     });
