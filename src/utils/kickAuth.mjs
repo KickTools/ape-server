@@ -4,10 +4,10 @@ import crypto from 'crypto';
 import querystring from 'querystring';
 
 export const KickAuth = {
-  KICK_CLIENT_ID: "01JME9HC9V2KJQRG1FYHMF423H",
-  KICK_CLIENT_SECRET: "27aa503952a9c5cd3a67921905f243aa1c7d4cd2a903d4e2904d3cd1d1568fd7",
-  KICK_REDIRECT_URI: 'http://localhost:9988/auth/kick/callback',
-  KICK_AUTH_BASE_URL: 'https://id.kick.com',
+  KICK_CLIENT_ID: process.env.KICK_CLIENT_ID,
+  KICK_CLIENT_SECRET: process.env.KICK_CLIENT_SECRET,
+  KICK_REDIRECT_URI: process.env.KICK_CALLBACK_URL || 'http://localhost:3000/auth/callback',
+  KICK_AUTH_BASE_URL: process.env.KICK_AUTH_BASE_URL || 'https://id.kick.com',
   
   KICK_SCOPES: [
     'user:read',
