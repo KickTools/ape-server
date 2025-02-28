@@ -1,3 +1,5 @@
+// src/models/ChatterLeaderboard.mjs
+import { connectionB } from '../services/mongo.mjs';
 import mongoose from 'mongoose';
 import logger from '../middlewares/logger.mjs';
 import { STREAMER } from '../constants/streamer.mjs';
@@ -36,7 +38,7 @@ chatterLeaderboardSchema.pre('save', function (next) {
 chatterLeaderboardSchema.post('save', function (error, doc, next) {
     if (error) {
         logger.error('Error saving to ChatterLeaderboard', {
-            collection: `${STREAMER_USERNAME}_chatter_leaderboard`,
+            collection: `ape-chatter-lb-${STREAMER_USERNAME}`,
             user_id: this.user_id,
             error: error.message,
             stack: error.stack
@@ -50,7 +52,7 @@ chatterLeaderboardSchema.post('save', function (error, doc, next) {
 chatterLeaderboardSchema.post('updateOne', function (error, doc, next) {
     if (error) {
         logger.error('Error updating ChatterLeaderboard', {
-            collection: `${STREAMER_USERNAME}_chatter_leaderboard`,
+            collection: `ape-chatter-lb-${STREAMER_USERNAME}`,
             user_id: this._update?.user_id || 'unknown',
             error: error.message,
             stack: error.stack
@@ -60,4 +62,4 @@ chatterLeaderboardSchema.post('updateOne', function (error, doc, next) {
     next();
 });
 
-export const ChatterLeaderboard = mongoose.model('ChatterLeaderboard', chatterLeaderboardSchema, `${STREAMER_USERNAME}_chatter_leaderboard`);
+export const ChatterLeaderboard = connectionB.model('ChatterLeaderboard', chatterLeaderboardSchema, `ape-chatter-lb-${STREAMER_USERNAME}`);

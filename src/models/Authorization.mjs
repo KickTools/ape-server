@@ -1,4 +1,5 @@
 // src/models/Authorization.mjs
+import { connectionB } from '../services/mongo.mjs';
 import mongoose from 'mongoose';
 import logger from '../middlewares/logger.mjs';
 
@@ -38,4 +39,4 @@ authorizationSchema.post('save', function(error, doc, next) {
     }
 });
 
-export const Authorization = mongoose.model('Authorization', authorizationSchema, "verify_viewer_authorizations");
+export const Authorization = connectionB.model('Authorization', authorizationSchema, "ape-auth");

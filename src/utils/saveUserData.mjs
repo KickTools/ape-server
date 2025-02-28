@@ -98,7 +98,7 @@ export async function saveKickUserData(userData, existingViewer = null) {
             slug: userData.slug,
             chatroom_id: userData.chatroom_id,
             username: userData.username,
-            profile_pic: userData.profile_pic,
+            profile_pic: userData.profile_picture,
             bio: userData.bio,
             email_verified_at: userData.email_verified_at,
             is_banned: userData.is_banned,

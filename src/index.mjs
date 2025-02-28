@@ -59,10 +59,10 @@ app.use((req, res, next) => {
   next();
 });
 
-// Initialize MongoDB connection
+// Initialize MongoDB connections
 connectMongo()
   .then(() => {
-    logger.info("Database connection established");
+    logger.info("All database connections established");
 
     // Start the leaderboard scheduler after DB connection is successful
     startLeaderboardScheduler();
@@ -75,15 +75,16 @@ connectMongo()
     process.exit(1);
   });
 
-// Session configuration
+// Session configuration - using connection B for sessions
 app.use(
   session({
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: true,
     store: MongoStore.create({
-      mongoUrl: process.env.MONGO_URI,
-      collectionName: "sessions"
+      mongoUrl: process.env.MONGO_URI_B,
+      dbName: process.env.MONGO_DB_B,
+      collectionName: "ape-web-sessions"
     }),
     cookie: getAccessTokenCookieConfig()
   })

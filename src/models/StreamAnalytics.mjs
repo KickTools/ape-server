@@ -1,3 +1,5 @@
+// src/models/StreamAnalytics.mjs
+import { connectionA } from '../services/mongo.mjs';
 import mongoose from 'mongoose';
 import logger from '../middlewares/logger.mjs';
 
@@ -58,4 +60,4 @@ streamAnalyticsSchema.post('save', function(error, doc, next) {
     next(error);
 });
 
-export const StreamAnalytics = mongoose.model('StreamAnalytics', streamAnalyticsSchema, "kick-stream_analytics");
+export const StreamAnalytics = connectionA.model('StreamAnalytics', streamAnalyticsSchema, "kick-stream_analytics");

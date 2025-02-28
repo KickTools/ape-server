@@ -5,14 +5,17 @@ import TwitchAPIClient from '../utils/twitchApi.mjs';
 import KickAPIClient from '../utils/kickApi.mjs';
 import { TwitchAuth } from '../utils/twitchAuth.mjs';
 import { KickAuth } from '../utils/kickAuth.mjs';
+import { XAuth } from '../utils/xAuth.mjs';
 import { verifySessionToken } from "../middlewares/sessionAuth.mjs";
 import {
   generateSessionToken,
   getSessionCookieConfig,
   saveTwitchSession,
   saveKickSession,
+  saveXSession,
   getTwitchSessionTokens,
-  getKickSessionTokens
+  getKickSessionTokens,
+  getXSessionTokens
 } from "../utils/auth.mjs";
 import { saveCombinedUserData, saveKickUserData, saveTwitchUserData } from "../utils/saveUserData.mjs";
 import { getAccessTokenCookieConfig, getRefreshTokenCookieConfig } from '../utils/cookieConfig.mjs';
@@ -25,6 +28,7 @@ class StreamingAuthRouter {
     this.router = Router();
     this.twitchAuth = TwitchAuth;
     this.kickAuth = KickAuth;
+    this.xAuth = new XAuth();
     this.twitchClient = null;
     this.kickClient = null;
     this.pendingAuth = new Map();
@@ -64,6 +68,13 @@ class StreamingAuthRouter {
     this.router.get("/kick/login", this.handleKickLogin.bind(this));
     this.router.get("/kick/verify", this.handleKickVerify.bind(this));
     this.router.get("/kick/callback", this.handleKickCallback.bind(this));
+
+    // X Routes
+    this.router.get("/x/login", this.handleXLogin.bind(this));
+    this.router.get("/x/callback", this.handleXCallback.bind(this));
+    this.router.get("/x/user", verifySessionToken, this.handleXUserData.bind(this));
+    this.router.post("/x/refresh", verifySessionToken, this.handleXRefresh.bind(this));
+    this.router.post("/x/logout", verifySessionToken, this.handleXLogout.bind(this));
 
     // Protected Kick Routes
     this.router.get("/kick/user", verifySessionToken, this.handleKickUserData.bind(this));
@@ -600,6 +611,88 @@ class StreamingAuthRouter {
     }
   }
 
+  // X Authentication Handlers
+  handleXLogin(req, res) {
+    const state = `xlogin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const { url, codeVerifier } = this.xAuth.getAuthorizationUrl(state);
+    this.pendingAuth.set(state, { codeVerifier });
+    res.redirect(url);
+  }
+
+  async handleXCallback(req, res) {
+    const { code, state } = req.query;
+    const pending = this.pendingAuth.get(state);
+    if (!pending) {
+      return res.status(400).send("Invalid state");
+    }
+    this.pendingAuth.delete(state);
+
+    try {
+      const tokens = await this.xAuth.getToken(code, pending.codeVerifier);
+      const userData = await this.xAuth.getUserData(tokens.access_token);
+      const sessionToken = generateSessionToken(userData.id);
+      await saveXSession(userData.id, tokens);
+      res.cookie('session_token', sessionToken, getSessionCookieConfig());
+      res.redirect('/dashboard'); // Adjust redirect as needed
+    } catch (error) {
+      logger.error('X Callback Error:', error);
+      res.status(500).send("Authentication failed");
+    }
+  }
+
+  async handleXUserData(req, res) {
+    const sessionToken = req.cookies.session_token;
+    const decoded = jwt.verify(sessionToken, process.env.JWT_SECRET);
+    const tokens = await getXSessionTokens(decoded.user_id);
+    if (!tokens) {
+      return res.status(401).send("Unauthorized");
+    }
+    try {
+      const userData = await this.xAuth.getUserData(tokens.access_token);
+      res.json(userData);
+    } catch (error) {
+      if (error.response && error.response.status === 401) {
+        try {
+          const newTokens = await this.xAuth.refreshToken(tokens.refresh_token);
+          await saveXSession(decoded.user_id, newTokens);
+          const userData = await this.xAuth.getUserData(newTokens.access_token);
+          res.json(userData);
+        } catch (refreshError) {
+          logger.error('X Refresh Error:', refreshError);
+          res.status(401).send("Unauthorized");
+        }
+      } else {
+        logger.error('X User Data Error:', error);
+        res.status(500).send("Failed to fetch user data");
+      }
+    }
+  }
+
+  async handleXRefresh(req, res) {
+    const sessionToken = req.cookies.session_token;
+    const decoded = jwt.verify(sessionToken, process.env.JWT_SECRET);
+    const tokens = await getXSessionTokens(decoded.user_id);
+    if (!tokens) {
+      return res.status(401).send("Unauthorized");
+    }
+    try {
+      const newTokens = await this.xAuth.refreshToken(tokens.refresh_token);
+      await saveXSession(decoded.user_id, newTokens);
+      res.json({ message: "Token refreshed" });
+    } catch (error) {
+      logger.error('X Refresh Error:', error);
+      res.status(500).send("Failed to refresh token");
+    }
+  }
+
+  async handleXLogout(req, res) {
+    const sessionToken = req.cookies.session_token;
+    const decoded = jwt.verify(sessionToken, process.env.JWT_SECRET);
+    await deleteXSession(decoded.user_id);
+    res.clearCookie('session_token');
+    res.json({ message: "Logged out" });
+  }
+
   // Shared Data Handlers
   // Add a combined verification route for both platforms
   async handleVerifyAllTokens(req, res) {
@@ -755,9 +848,12 @@ class StreamingAuthRouter {
     const redirectBase = process.env.NODE_ENV === "production"
       ? process.env.FRONTEND_URL
       : process.env.BACKEND_URL;
-
-    const redirectPath = isVerification ? `connect/${platform}` : 'login/callback';
-    res.redirect(`${redirectBase}/${redirectPath}?platform=${platform}`);
+  
+    const redirectPath = isVerification 
+      ? `auth/?auth_flow=verified&platform=${platform}` 
+      : `auth/redirect?platform=${platform}`;
+  
+    res.redirect(`${redirectBase}/${redirectPath}`);
   }
 
   redirectToError(res) {
@@ -765,7 +861,7 @@ class StreamingAuthRouter {
       ? process.env.FRONTEND_URL
       : process.env.BACKEND_URL;
 
-    return res.redirect(`${redirectBase}/login/error`);
+    return res.redirect(`${redirectBase}/auth/error`);
   }
 
   handleError(error, res, startTime, platform) {

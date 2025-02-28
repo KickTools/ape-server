@@ -1,3 +1,5 @@
+// src/models/ChatStatistics.mjs
+import { connectionA } from '../services/mongo.mjs';
 import mongoose from 'mongoose';
 import logger from '../middlewares/logger.mjs';
 
@@ -40,4 +42,4 @@ chatStatisticsSchema.post('save', function(error, doc, next) {
     next(error);
 });
 
-export const ChatStatistics = mongoose.model('ChatStatistics', chatStatisticsSchema, "kick-chat_statistics");
+export const ChatStatistics = connectionA.model('ChatStatistics', chatStatisticsSchema, "kick-chat_statistics");

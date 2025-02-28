@@ -1,4 +1,5 @@
 // src/models/Profile.mjs
+import { connectionB } from '../services/mongo.mjs';
 import mongoose from 'mongoose';
 import logger from '../middlewares/logger.mjs';
 
@@ -43,10 +44,20 @@ const profileSchema = new mongoose.Schema({
     },
     created_at: { type: Date }
   },
-  additional_info: { type: Map, of: String } // For any other dynamic fields
+  x: {
+    id: { type: String },
+    username: { type: String },
+    name: { type: String },
+    profile_image_url: { type: String },
+    created_at: { type: Date },
+    description: { type: String },
+    followers_count: { type: Number },
+    following_count: { type: Number }
+  },
+  additional_info: { type: Map, of: String }
 }, {
   timestamps: true,
-  versionKey: false // Disable the version key
+  versionKey: false
 });
 
 // Pre-save middleware to log the profile save attempt
@@ -66,4 +77,4 @@ profileSchema.post('save', function(error, doc, next) {
   next(error);
 });
 
-export const Profile = mongoose.model('Profile', profileSchema, "verify_viewer_profiles");
+export const Profile = connectionB.model('Profile', profileSchema, "ape-user-profiles");

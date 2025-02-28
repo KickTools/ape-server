@@ -1,4 +1,5 @@
 // src/models/Analytics.mjs
+import { connectionB } from '../services/mongo.mjs';
 import mongoose from 'mongoose';
 import logger from "../middlewares/logger.mjs";
 
@@ -40,14 +41,15 @@ verifyViewerDailyStatsSchema.statics.getDailyStats = async function(date) {
   }
 };
 
-export const VerifyViewerGlobalStats = mongoose.model(
+// Create models using connectionB (the Ape Gang database connection)
+export const VerifyViewerGlobalStats = connectionB.model(
   'VerifyViewerGlobalStats', 
   verifyViewerStatsSchema,
-  'verify_viewer_globalStats'
+  'ape-globalStats'
 );
 
-export const VerifyViewerDailyStats = mongoose.model(
+export const VerifyViewerDailyStats = connectionB.model(
   'VerifyViewerDailyStats', 
   verifyViewerDailyStatsSchema,
-  'verify_viewer_dailyStats'
+  'ape-dailyStats'
 );

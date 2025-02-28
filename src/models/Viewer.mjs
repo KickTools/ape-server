@@ -1,4 +1,5 @@
 // src/models/Viewer.mjs
+import { connectionB } from "../services/mongo.mjs";
 import mongoose from "mongoose";
 import logger from "../middlewares/logger.mjs";
 import { VerifyViewerGlobalStats, VerifyViewerDailyStats } from './Analytics.mjs';
@@ -21,6 +22,14 @@ const viewerSchema = new mongoose.Schema(
       verified_at: { type: Date },
       session: { type: mongoose.Schema.Types.ObjectId, ref: "Session" },
       profile: { type: mongoose.Schema.Types.ObjectId, ref: "Profile" }
+    },
+    x: {
+      user_id: { type: String },
+      username: { type: String },
+      verified: { type: Boolean, default: false },
+      verified_at: { type: Date },
+      session: { type: mongoose.Schema.Types.ObjectId, ref: "Session" },
+      profile: { type: mongoose.Schema.Types.ObjectId, ref: "Profile" }
     }
   },
   {
@@ -29,9 +38,9 @@ const viewerSchema = new mongoose.Schema(
   }
 );
 
-// Define indexes once
 viewerSchema.index({ "twitch.username": 1 });
 viewerSchema.index({ "kick.username": 1 });
+viewerSchema.index({ "x.username": 1 }); // Add index for X username
 
 // Pre-save middleware
 viewerSchema.pre("save", function (next) {
@@ -60,8 +69,8 @@ viewerSchema.post("save", function (error, doc, next) {
   next(error);
 });
 
-export const Viewer = mongoose.model(
+export const Viewer = connectionB.model(
   "Viewer",
   viewerSchema,
-  "verify_viewer_viewers"
+  "ape-users"
 );
