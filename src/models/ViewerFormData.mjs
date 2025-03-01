@@ -6,7 +6,7 @@ import logger from "../middlewares/logger.mjs";
 const viewerFormDataSchema = new mongoose.Schema({
     viewer: { 
         type: mongoose.Schema.Types.ObjectId, 
-        ref: 'Viewer', // Both models are on connectionB now
+        ref: 'Viewer',
         required: true 
     },
     bitcoinAddress: { 
@@ -15,10 +15,27 @@ const viewerFormDataSchema = new mongoose.Schema({
         unique: true, 
         index: true 
     },
+    ethAddress: {
+        type: String,
+        required: false,
+        unique: true,
+        index: true,
+        sparse: true // Allows null values while maintaining uniqueness
+    },
     contactAddress: { 
         type: String, 
         required: true 
     },
+    language: {
+        type: String,
+        required: false,
+        default: 'en' // Default to English if not specified
+    },
+    notifications: {
+        type: Boolean,
+        required: false,
+        default: false
+    }
 }, {
     timestamps: true,
     versionKey: false
@@ -33,51 +50,88 @@ class DuplicateBitcoinAddressError extends Error {
     }
 }
 
-// Static method to check for duplicate Bitcoin address
-viewerFormDataSchema.statics.checkDuplicateBitcoinAddress = async function(bitcoinAddress, excludeId = null) {
+class DuplicateEthAddressError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'DuplicateEthAddressError';
+        this.statusCode = 400;
+    }
+}
+
+// Check for duplicate Bitcoin address
+viewerFormDataSchema.statics.checkDuplicateBitcoinAddress = async function(bitcoinAddress, viewerId, excludeId = null) {
     try {
-        const query = { bitcoinAddress };
-        if (excludeId) {
-            query._id = { $ne: excludeId };
-        }
+        const query = { 
+            bitcoinAddress,
+            viewer: { $ne: viewerId } // Exclude the current viewer's own record
+        };
+        if (excludeId) query._id = { $ne: excludeId };
         
         const existing = await this.findOne(query);
         if (existing) {
             logger.warn(`Duplicate Bitcoin address attempt: ${bitcoinAddress}`, {
                 existingId: existing._id.toString(),
-                timestamp: new Date().toISOString(),
-                currentUser: global.currentUser || 'KickTools'  // Using provided login
+                viewerId,
+                timestamp: new Date().toISOString()
             });
-            throw new DuplicateBitcoinAddressError('This Bitcoin address is already registered');
+            throw new DuplicateBitcoinAddressError('This Bitcoin address is already registered to another user');
         }
         return true;
     } catch (error) {
-        if (error instanceof DuplicateBitcoinAddressError) {
-            throw error;
-        } else {
-            logger.error(`Error checking duplicate Bitcoin address: ${error.message}`, {
-                bitcoinAddress,
-                excludeId: excludeId ? excludeId.toString() : null,
-                stack: error.stack,
-                timestamp: new Date().toISOString(),
-                currentUser: global.currentUser || 'KickTools' 
+        if (error instanceof DuplicateBitcoinAddressError) throw error;
+        logger.error(`Error checking duplicate Bitcoin address: ${error.message}`, {
+            bitcoinAddress,
+            viewerId,
+            stack: error.stack
+        });
+        throw new Error('Failed to validate Bitcoin address');
+    }
+};
+
+// Check for duplicate Ethereum address
+viewerFormDataSchema.statics.checkDuplicateEthAddress = async function(ethAddress, viewerId, excludeId = null) {
+    if (!ethAddress) return true;
+    
+    try {
+        const query = { 
+            ethAddress,
+            viewer: { $ne: viewerId } // Exclude the current viewer's own record
+        };
+        if (excludeId) query._id = { $ne: excludeId };
+        
+        const existing = await this.findOne(query);
+        if (existing) {
+            logger.warn(`Duplicate Ethereum address attempt: ${ethAddress}`, {
+                existingId: existing._id.toString(),
+                viewerId,
+                timestamp: new Date().toISOString()
             });
-            throw new Error('Failed to validate Bitcoin address. Please try again later.');
+            throw new DuplicateEthAddressError('This Ethereum address is already registered to another user');
         }
+        return true;
+    } catch (error) {
+        if (error instanceof DuplicateEthAddressError) throw error;
+        logger.error(`Error checking duplicate Ethereum address: ${error.message}`, {
+            ethAddress,
+            viewerId,
+            stack: error.stack
+        });
+        throw new Error('Failed to validate Ethereum address');
     }
 };
 
 // Pre-validate middleware to check for duplicates
 viewerFormDataSchema.pre('validate', async function(next) {
     try {
-        await ViewerFormData.checkDuplicateBitcoinAddress(this.bitcoinAddress, this._id);
+        await Promise.all([
+            ViewerFormData.checkDuplicateBitcoinAddress(this.bitcoinAddress, this.viewer, this._id),
+            ViewerFormData.checkDuplicateEthAddress(this.ethAddress, this.viewer, this._id)
+        ]);
         next();
     } catch (error) {
         logger.error(`Validation error for ViewerFormData: ${error.message}`, {
             viewerId: this.viewer ? this.viewer.toString() : 'unknown',
-            errorName: error.name,
-            timestamp: new Date().toISOString(),
-            currentUser: global.currentUser || 'KickTools' 
+            errorName: error.name
         });
         next(error);
     }
@@ -123,4 +177,4 @@ viewerFormDataSchema.post('save', function(doc) {
 });
 
 export const ViewerFormData = connectionB.model('ViewerFormData', viewerFormDataSchema, "ape-user-data");
-export { DuplicateBitcoinAddressError };
+export { DuplicateBitcoinAddressError, DuplicateEthAddressError };
