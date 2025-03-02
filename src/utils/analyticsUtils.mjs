@@ -11,7 +11,8 @@ export const analyticsUtils = {
       return {
         success: true,
         data: {
-          verifiedViewers: globalStats?.totalViewers || 0,
+          totalViewers: globalStats?.totalViewers || 0,
+          levelDistribution: globalStats?.levelDistribution || { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
           botAccounts: 0, // If you want to track this separately later
           lastUpdated: globalStats?.lastUpdated || new Date()
         }
@@ -90,11 +91,41 @@ export async function updateViewerAnalytics() {
       createdAt: { $gte: startOfDay, $lte: endOfDay }
     });
 
+    // Compute level distribution
+    const levelCounts = await Viewer.aggregate([
+      {
+        $project: {
+          level: {
+            $sum: [
+              { $cond: [{ $eq: ["$twitch.verified", true] }, 1, 0] },
+              { $cond: [{ $eq: ["$kick.verified", true] }, 1, 0] },
+              { $cond: [{ $eq: ["$x.verified", true] }, 1, 0] }
+            ]
+          }
+        }
+      },
+      {
+        $group: {
+          _id: "$level",
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const levelDistribution = { 0: 0, 1: 0, 2: 0, 3: 0 };
+    levelCounts.forEach(({ _id, count }) => {
+      levelDistribution[_id] = count;
+    });
+
     // Update global stats
     await VerifyViewerGlobalStats.findOneAndUpdate(
       {},
       {
-        $set: { totalViewers, lastUpdated: new Date() }
+        $set: {
+          totalViewers,
+          levelDistribution,
+          lastUpdated: new Date()
+        }
       },
       { upsert: true }
     );
@@ -106,7 +137,7 @@ export async function updateViewerAnalytics() {
       { upsert: true }
     );
 
-    logger.info(`Analytics updated: totalViewers=${totalViewers}, viewersAddedToday=${viewersAddedToday}`);
+    logger.info(`Analytics updated: totalViewers=${totalViewers}, viewersAddedToday=${viewersAddedToday}, levelDistribution=${JSON.stringify(levelDistribution)}`);
   } catch (error) {
     logger.error(`Failed to update analytics: ${error.message}`);
     throw error;

@@ -40,7 +40,7 @@ const viewerSchema = new mongoose.Schema(
 
 viewerSchema.index({ "twitch.username": 1 });
 viewerSchema.index({ "kick.username": 1 });
-viewerSchema.index({ "x.username": 1 }); // Add index for X username
+viewerSchema.index({ "x.username": 1 });
 
 // Pre-save middleware
 viewerSchema.pre("save", function (next) {
