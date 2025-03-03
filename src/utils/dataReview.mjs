@@ -14,7 +14,6 @@ export async function getViewersList(options = {}) {
       page = 1,
       limit = 10,
       platform,
-      verified,
       search,
       sortBy = 'createdAt',
       sortOrder = -1
@@ -22,44 +21,26 @@ export async function getViewersList(options = {}) {
 
     let query = Viewer.find();
 
-    // Apply filters
+    // Apply filters only if explicitly set
     if (platform) {
       query = query.where(`${platform}.verified`).exists(true);
     }
-    if (verified !== undefined) {
-      const platformPath = platform ? `${platform}.verified` : {
-        $or: [
-          { 'twitch.verified': verified },
-          { 'kick.verified': verified }
-        ]
-      };
-      query = query.where(platformPath);
-    }
-    if (search) {
+
+    if (search && search.trim() !== "") {
       query = query.or([
         { name: new RegExp(search, 'i') },
         { 'twitch.username': new RegExp(search, 'i') },
         { 'kick.username': new RegExp(search, 'i') }
       ]);
-    }
+    } 
 
-    // Apply sorting
     const sortField = sortBy === 'name' ? 'name' : 'createdAt';
     query = query.sort({ [sortField]: sortOrder });
 
-    // Get total count for pagination
-    const totalDocs = await Viewer.countDocuments(query);
-
-    // Apply pagination
+    const totalDocs = await Viewer.countDocuments(query.getFilter());
     query = paginateResults(query, page, limit);
 
-    // Populate related data
-    query = query
-      .populate('twitch.profile')
-      .populate('kick.profile')
-      .populate('twitch.auth')
-      .populate('kick.auth');
-
+    query = query.populate('twitch.profile').populate('kick.profile');
     const viewers = await query.exec();
 
     return {

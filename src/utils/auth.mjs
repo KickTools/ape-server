@@ -8,10 +8,11 @@ const JWT_SECRET = process.env.JWT_SECRET || "default-secret-for-testing";
 const SEVEN_DAYS_IN_SECONDS = 7 * 24 * 60 * 60;
 const SEVEN_DAYS_IN_MS = SEVEN_DAYS_IN_SECONDS * 1000;
 
-export const generateSessionToken = (userId) => {
+export const generateSessionToken = (userId, role) => {
     if (!JWT_SECRET) throw new Error("JWT_SECRET is not defined");
     const payload = {
         user_id: userId,
+        role: role || "regular",
         iat: Math.floor(Date.now() / 1000), // Issued Time
         exp: Math.floor(Date.now() / 1000) + SEVEN_DAYS_IN_SECONDS // Expires in 7 days
     };

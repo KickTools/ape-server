@@ -22,6 +22,7 @@ import { getAccessTokenCookieConfig, getRefreshTokenCookieConfig } from '../util
 import logger from "../middlewares/logger.mjs";
 import jwt from 'jsonwebtoken';
 import { verificationCache, VERIFY_FLOW_TTL } from '../utils/cache.mjs';
+import { Viewer } from "../models/Viewer.mjs";
 
 class StreamingAuthRouter {
   constructor() {
@@ -86,6 +87,36 @@ class StreamingAuthRouter {
     this.router.get("/user", verifySessionToken, this.handleUserData.bind(this));
     this.router.post("/save", verifySessionToken, this.handleSaveData.bind(this));
     this.router.post("/logout", verifySessionToken, this.handleLogout.bind(this));
+    this.router.get("/me", verifySessionToken, (req, res) => {
+      res.json({
+        success: true,
+        user: {
+          user_id: req.user.user_id,
+          platform: req.user.platform,
+          role: req.user.role
+        }
+      });
+    });
+    this.router.get("/check-session", verifySessionToken, async (req, res) => {
+      try {
+        const viewer = await Viewer.findOne({
+          $or: [
+            { "twitch.user_id": req.user.user_id },
+            { "kick.user_id": req.user.user_id }
+          ]
+        });
+        res.json({
+          success: true,
+          user: {
+            user_id: req.user.user_id,
+            platform: req.user.platform,
+            role: viewer?.role || req.user.role // Prefer Viewer role, fallback to token
+          }
+        });
+      } catch (error) {
+        res.status(401).json({ success: false, message: "Session invalid" });
+      }
+    });
   }
 
   // Twitch Authentication Handlers
@@ -143,7 +174,8 @@ class StreamingAuthRouter {
       } else {
         const expiresAt = new Date(Date.now() + tokens.expires_in * 1000);
         await saveTwitchSession(tokens, userData, expiresAt);
-        const sessionToken = generateSessionToken(userData.id);
+        const viewer = await Viewer.findOne({ "twitch.user_id": userData.id });
+        const sessionToken = generateSessionToken(userData.id, viewer?.role);
 
         res.cookie('twitch_session_token', sessionToken, getSessionCookieConfig());
         res.cookie('access_token', tokens.access_token, getAccessTokenCookieConfig());
@@ -452,7 +484,8 @@ class StreamingAuthRouter {
         // Regular login flow - existing code
         const expiresAt = new Date(Date.now() + tokens.expires_in * 1000);
         await saveKickSession(tokens, userData, expiresAt);
-        const sessionToken = generateSessionToken(userData.user_id);
+        const viewer = await Viewer.findOne({ "kick.user_id": userData.user_id });
+        const sessionToken = generateSessionToken(userData.user_id, viewer?.role);
         res.cookie('kick_session_token', sessionToken, getSessionCookieConfig());
         res.cookie('kick_access_token', tokens.access_token, getAccessTokenCookieConfig());
         res.cookie('kick_refresh_token', tokens.refresh_token, getRefreshTokenCookieConfig());

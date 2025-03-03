@@ -15,7 +15,6 @@ import analyticsRoute from "./routes/analyticsRoute.mjs";
 import { connectMongo } from "./services/mongo.mjs";
 import { verifySessionToken } from "./middlewares/sessionAuth.mjs";
 import { kickRateLimiter, leaderboardRateLimiter, analyticsRateLimiter } from "./middlewares/rateLimiter.mjs";
-import { getAccessTokenCookieConfig } from "./utils/cookieConfig.mjs";
 import { startLeaderboardScheduler } from "./schedulers/leaderboardScheduler.mjs";
 
 const app = express();
@@ -74,21 +73,6 @@ connectMongo()
     });
     process.exit(1);
   });
-
-// Session configuration - using connection B for sessions
-app.use(
-  session({
-    secret: process.env.SESSION_SECRET,
-    resave: false,
-    saveUninitialized: true,
-    store: MongoStore.create({
-      mongoUrl: process.env.MONGO_URI_B,
-      dbName: process.env.MONGO_DB_B,
-      collectionName: "ape-web-sessions"
-    }),
-    cookie: getAccessTokenCookieConfig()
-  })
-);
 
 // Routes
 app.use("/auth", authRoutes); // Apply to all /auth routes

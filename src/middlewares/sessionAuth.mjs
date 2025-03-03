@@ -26,6 +26,7 @@ export const verifySessionToken = (req, res, next) => {
     req.user = {
       user_id: decoded.user_id,
       platform: twitchToken ? "twitch" : "kick",
+      role: decoded.role 
     };
     next();
   } catch (error) {

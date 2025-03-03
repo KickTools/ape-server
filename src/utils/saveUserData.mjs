@@ -2,6 +2,7 @@ import logger from "../middlewares/logger.mjs";
 import { Viewer } from "../models/Viewer.mjs";
 import { Profile } from "../models/Profile.mjs";
 import { Session } from "../models/Session.mjs";
+import { generateSessionToken } from "./auth.mjs"; // Import to regenerate tokens
 
 export async function saveTwitchUserData(userData) {
   const startTime = Date.now();
@@ -153,7 +154,6 @@ export async function saveCombinedUserData(twitchData, kickData) {
   let kickResult;
 
   try {
-
     if (twitchData && twitchData.user) {
       const twitchUser = twitchData.user;
       twitchResult = await saveTwitchUserData(twitchUser);
@@ -167,13 +167,29 @@ export async function saveCombinedUserData(twitchData, kickData) {
       throw new Error("Kick data is required");
     }
 
+    const viewer = await Viewer.findOneAndUpdate(
+      { _id: kickResult.viewer._id },
+      { $setOnInsert: { role: "regular" } },
+      { new: true, upsert: true }
+    );
+
+    const twitchSessionToken = twitchResult
+      ? generateSessionToken(twitchData.user.id, viewer.role)
+      : null;
+    const kickSessionToken = generateSessionToken(kickData.user_id, viewer.role);
+
     logger.info("Combined user data saved", {
       twitchId: twitchResult ? twitchResult.twitch.user_id : "N/A",
       kickId: kickData.user_id,
+      role: viewer.role,
       duration: Date.now() - startTime
     });
 
-    return kickResult.viewer;
+    return {
+      viewer,
+      twitchSessionToken,
+      kickSessionToken
+    };
   } catch (error) {
     logger.error("Failed to save combined user data", {
       error: error.message,

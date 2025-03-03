@@ -43,3 +43,23 @@ export async function fetchKickUserData(kickName) {
     throw error;
   }
 }
+
+export async function fetchStreamerUsersData(streamer, viewer) {
+  try {
+    const url = `${BASE_URL}/proxy/kick/${CASTERLABS_KEY}/api/v2/channels/${streamer}/users/${viewer}`;
+    const response = await axios.get(url);
+    const data = response.data;
+
+    const viewerData = {
+      followed: data.following_since ? true : false,
+      following_since: data.following_since,
+      subscribed_for: data.subscribed_for || 0,
+      is_banned: data.banned !== null
+    };
+
+    return viewerData;
+  } catch (error) {
+    logger.error(`Error fetching Kick viewer data: ${error.message}`);
+    throw error;
+  }
+}
