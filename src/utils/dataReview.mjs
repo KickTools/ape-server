@@ -212,6 +212,7 @@ export async function getViewerByUserId(platform, userId) {
 
     // Transform the data to match the frontend interface
     const transformedViewer = {
+      viewer_id: viewer._id,
       twitch: viewer.twitch?.profile?.twitch 
         ? {
             user_id: viewer.twitch.user_id,

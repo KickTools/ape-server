@@ -8,6 +8,7 @@ const viewerSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
     role: { type: String, enum: ["regular", "admin", "webmaster"], default: "regular" },
+    giveaways: {type: mongoose.Schema.Types.ObjectId, ref: "ViewerGiveaways"},
     twitch: {
       user_id: { type: String },
       username: { type: String },

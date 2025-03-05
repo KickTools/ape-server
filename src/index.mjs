@@ -12,6 +12,7 @@ import leaderboardRoute from "./routes/leaderboardRoute.mjs";
 import dataReviewRoute from "./routes/dataReviewRoute.mjs";
 import dataSubmitRoute from "./routes/dataSubmitRoute.mjs";
 import analyticsRoute from "./routes/analyticsRoute.mjs";
+import giveawayRoute from "./routes/giveawayRoute.mjs";
 import { connectMongo } from "./services/mongo.mjs";
 import { verifySessionToken } from "./middlewares/sessionAuth.mjs";
 import { kickRateLimiter, leaderboardRateLimiter, analyticsRateLimiter } from "./middlewares/rateLimiter.mjs";
@@ -26,7 +27,7 @@ app.use(
   cors({
     origin: corsOrigins,
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"]
   })
 );
@@ -80,7 +81,8 @@ app.use("/kick", kickRateLimiter, verifySessionToken, kickRoutes);
 app.use("/leaderboard", leaderboardRateLimiter, leaderboardRoute); 
 app.use("/analytics", analyticsRateLimiter, analyticsRoute);
 app.use("/data/retrieve", verifySessionToken, dataReviewRoute);
-app.use("/data/submit", verifySessionToken, dataSubmitRoute); 
+app.use("/data/submit", verifySessionToken, dataSubmitRoute);
+app.use("/giveaways", verifySessionToken, giveawayRoute);
 
 // Error handling
 app.use((err, req, res, next) => {

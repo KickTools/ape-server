@@ -1,6 +1,7 @@
 // src/services/kickService.mjs
 import axios from 'axios';
 import logger from '../middlewares/logger.mjs';
+import { chatCache } from '../utils/cache.mjs';
 
 const BASE_URL = process.env.CASTERLABS_BASE_URL;
 const CASTERLABS_KEY = process.env.CASTERLABS_KEY;
@@ -60,6 +61,39 @@ export async function fetchStreamerUsersData(streamer, viewer) {
     return viewerData;
   } catch (error) {
     logger.error(`Error fetching Kick viewer data: ${error.message}`);
+    throw error;
+  }
+}
+
+export async function fetchChatHistory(streamerId, viewerId) {
+  const cachedMessages = chatCache.getMessages(streamerId, viewerId);
+  if (cachedMessages) return cachedMessages;
+
+  let messages = [];
+  let cursor = null;
+  const urlBase = `${BASE_URL}/proxy/kick/${CASTERLABS_KEY}/api/v2/channels/${streamerId}/users/${viewerId}/messages`;
+
+  try {
+    while (true) {
+      const url = cursor ? `${urlBase}?cursor=${cursor}` : urlBase;
+      const response = await axios.get(url);
+      const data = response.data;
+
+      if (data.status.error) {
+        logger.error(`API Error: ${data.status.message}`);
+        break;
+      }
+
+      messages.push(...data.data.messages);
+      cursor = data.data.cursor;
+
+      if (!cursor || data.data.messages.length === 0) break;
+    }
+
+    chatCache.setMessages(streamerId, viewerId, messages);
+    return messages;
+  } catch (error) {
+    logger.error(`Error fetching chat history: ${error.message}`);
     throw error;
   }
 }

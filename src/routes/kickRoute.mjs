@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { fetchKickUserData } from '../services/kickService.mjs';
+import { fetchKickUserData, fetchChatHistory } from '../services/kickService.mjs';
 import { kickRateLimiter } from '../middlewares/rateLimiter.mjs';
 import { saveKickUserData } from '../utils/saveUserData.mjs';
 import logger from '../middlewares/logger.mjs';
@@ -29,6 +29,18 @@ router.post('/verify', async (req, res) => {
   } catch (error) {
     logger.error(`Error verifying user ${username} (userId: ${userId}): ${error.message}`);
     res.status(500).json({ success: false, message: "Error verifying user", error: error.message });
+  }
+});
+
+router.get('/chat/:streamerId/:viewerId', kickRateLimiter, async (req, res) => {
+  const { streamerId, viewerId } = req.params;
+
+  try {
+    const chatHistory = await fetchChatHistory(streamerId, viewerId);
+    res.json({ success: true, messages: chatHistory });
+  } catch (error) {
+    logger.error(`Error fetching chat history for ${viewerId} in ${streamerId}: ${error.message}`);
+    res.status(500).json({ success: false, message: 'Error fetching chat history', error: error.message });
   }
 });
 

@@ -1,8 +1,11 @@
 import express from 'express';
+import fetch from 'node-fetch';
 import { analyticsUtils } from '../utils/analyticsUtils.mjs';
 import { viewerCache } from '../utils/viewerCache.mjs';
 import logger from '../middlewares/logger.mjs';
+import { requireAdminOrWebmaster } from '../middlewares/adminAuth.mjs';
 import { statsCache, GLOBAL_STATS_CACHE_KEY, DAILY_STATS_CACHE_KEY_PREFIX, CACHE_TTL_SECONDS } from '../utils/cache.mjs';
+import { verifySessionToken } from "../middlewares/sessionAuth.mjs";
 
 
 const router = express.Router();
@@ -149,5 +152,53 @@ router.get('/verification/daily', async (req, res) => {
     });
   }
 });
+
+router.get('/admin-analtyics/:userId', verifySessionToken, requireAdminOrWebmaster, async (req, res) => {
+
+    try {
+      const { userId } = req.params;
+
+      if (!userId || isNaN(userId)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid or missing user ID parameter'
+        });
+      }
+
+      const kicktoolsUrl = `https://api.kicktools.app/api/customers/external/analytics/user_id/${userId}`;
+      const apiKey = process.env.KICKTOOLS_API_KEY || '3A4713EFAAD694F5BB8585DD15AC55C0';
+
+      const response = await fetch(kicktoolsUrl, {
+        method: 'GET',
+        headers: {
+          'X-API-Key': apiKey,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        logger.error(`Kicktools API error: ${response.status} - ${errorText}`);
+        return res.status(response.status).json({
+          success: false,
+          error: `Failed to fetch analytics data: ${errorText}`
+        });
+      }
+
+      const analyticsData = await response.json();
+      res.json({
+        success: true,
+        data: analyticsData
+      });
+
+    } catch (error) {
+      logger.error(`Error in user-analytics endpoint: ${error.message}`);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error while fetching analytics'
+      });
+    }
+  }
+);
 
 export default router;

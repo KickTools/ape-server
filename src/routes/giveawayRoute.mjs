@@ -1,0 +1,414 @@
+import express from "express";
+import { Viewer } from "../models/Viewer.mjs";
+import { ViewerGiveaways } from "../models/ViewerGiveaways.mjs";
+import { Giveaway } from "../models/Giveaway.mjs";
+import logger from "../middlewares/logger.mjs";
+import { requireAdminOrWebmaster } from "../middlewares/adminAuth.mjs";
+import crypto from 'crypto';
+
+const router = express.Router();
+
+function getRandomIndex(max) {
+    const range = max;
+    if (range <= 0) {
+        throw new Error('Range must be positive');
+    }
+    const bytesNeeded = Math.ceil(Math.log2(range) / 8);
+    const randomBytes = crypto.randomBytes(bytesNeeded); // Corrected line
+    let randomValue = 0;
+    for (let i = 0; i < bytesNeeded; i++) {
+        randomValue = (randomValue << 8) | randomBytes[i];
+    }
+    return randomValue % range;
+}
+
+// GET giveaways with filtering
+router.get("/", requireAdminOrWebmaster, async (req, res) => {
+    try {
+        const { status, type, search } = req.query;
+
+        // Build query object based on filters
+        const query = {};
+        if (status && status !== 'all') query.status = status;
+        if (type && type !== 'all') query.type = type;
+        if (search) {
+            query.title = { $regex: search, $options: 'i' }; // Case insensitive search
+        }
+
+        const giveaways = await Giveaway.find(query).lean();
+        res.json({ success: true, data: giveaways });
+    } catch (error) {
+        logger.error(`Error fetching giveaways: ${error.message}`);
+        res.status(500).json({ success: false, message: "Internal Server Error" });
+    }
+});
+
+// Admin-only: Get viewer details by ID
+router.patch("/:id", requireAdminOrWebmaster, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const updateData = req.body;
+
+        // Fields that are allowed to be updated
+        const allowedFields = ['title', 'type', 'winnersCount', 'start_date', 'end_date', 'verificationLevel', 'allowPreviousWinners', 'keyword', 'followLength', 'subscribersOnly'];
+
+        // Filter out any fields not in allowedFields
+        const filteredUpdate = Object.keys(updateData)
+            .filter(key => allowedFields.includes(key))
+            .reduce((obj, key) => {
+                obj[key] = updateData[key];
+                return obj;
+            }, {});
+
+        const giveaway = await Giveaway.findByIdAndUpdate(
+            id,
+            { $set: filteredUpdate },
+            { new: true }
+        );
+
+        if (!giveaway) {
+            return res.status(404).json({ success: false, message: "Giveaway not found" });
+        }
+
+        logger.info(`Giveaway ${id} updated successfully`);
+        res.json({ success: true, data: giveaway });
+    } catch (error) {
+        logger.error(`Error updating giveaway ${req.params.id}: ${error.message}`);
+        res.status(500).json({ success: false, message: "Internal Server Error" });
+    }
+});
+
+router.post("/viewers", requireAdminOrWebmaster, async (req, res) => {
+    try {
+        const { viewerIds } = req.body;
+        const viewers = await Viewer.find({
+            _id: { $in: viewerIds }
+        }).lean().select('_id name');
+
+        res.json({
+            success: true,
+            data: viewers.map(viewer => ({
+                id: viewer._id,
+                name: viewer.name
+            }))
+        });
+    } catch (error) {
+        logger.error(`Error fetching viewers: ${error.message}`);
+        res.status(500).json({ success: false, message: "Internal Server Error" });
+    }
+});
+
+// Admin-only: Create a new giveaway
+router.post("/", requireAdminOrWebmaster, async (req, res) => {
+    const startTime = Date.now();
+    try {
+        const {
+            title,
+            type,
+            winnersCount,
+            verificationLevel,
+            allowPreviousWinners,
+            keyword,
+            followLength,
+            subscribersOnly,
+            startDate, // For Primal Pass Pick
+            endDate,   // For Primal Pass Pick
+        } = req.body;
+
+        if (!title || !type || !winnersCount) {
+            return res.status(400).json({ success: false, message: "Title, type, and winnersCount are required" });
+        }
+
+        if (type === "ticket" && (!startDate || !endDate)) {
+            return res.status(400).json({ success: false, message: "Start and end dates are required for ticket giveaways" });
+        }
+
+        const giveaway = new Giveaway({
+            title,
+            type,
+            status: "active",
+            start_date: type === "ticket" ? new Date(startDate) : new Date(), // Default to now for non-ticket
+            end_date: type === "ticket" ? new Date(endDate) : undefined,
+            winners: [],
+            entrants: [],
+        });
+
+        await giveaway.save();
+        logger.info(`Giveaway ${title} created successfully`, { duration: Date.now() - startTime });
+
+        res.status(201).json({
+            success: true,
+            data: {
+                id: giveaway._id,
+                title,
+                type,
+                status: giveaway.status,
+                startDate: giveaway.start_date,
+                endDate: giveaway.end_date,
+            },
+        });
+    } catch (error) {
+        logger.error(`Error creating giveaway: ${error.message}`, { duration: Date.now() - startTime });
+        res.status(500).json({ success: false, message: "Internal Server Error" });
+    }
+});
+
+// Admin-only: Update giveaway status (e.g., close entries, complete)
+router.patch("/:id/status", requireAdminOrWebmaster, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+
+        if (!["active", "closed", "completed"].includes(status)) {
+            return res.status(400).json({ success: false, message: "Invalid status" });
+        }
+
+        const giveaway = await Giveaway.findById(id);
+        if (!giveaway) {
+            return res.status(404).json({ success: false, message: "Giveaway not found" });
+        }
+
+        giveaway.status = status;
+        await giveaway.save();
+
+        logger.info(`Giveaway ${id} status updated to ${status}`);
+        res.json({ success: true, data: giveaway });
+    } catch (error) {
+        logger.error(`Error updating giveaway ${req.params.id} status: ${error.message}`);
+        res.status(500).json({ success: false, message: "Internal Server Error" });
+    }
+});
+
+// Admin-only: Draw winners for a giveaway
+router.post("/:id/draw", requireAdminOrWebmaster, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { winnersCount, verificationLevel, allowPreviousWinners } = req.body;
+
+        const giveaway = await Giveaway.findById(id);
+        if (!giveaway) {
+            return res.status(404).json({ success: false, message: "Giveaway not found" });
+        }
+
+        if (giveaway.status === "completed") {
+            return res.status(400).json({ success: false, message: "Giveaway already completed" });
+        }
+
+        // Fetch eligible viewers based on verification level
+        const verificationQuery = {
+            $or: [
+                { "twitch.verified": true },
+                { "kick.verified": true },
+            ],
+        };
+        if (verificationLevel >= 3) verificationQuery["x.verified"] = true;
+        // Add more platforms if verificationLevel > 3 (e.g., 4, 5)
+
+        const viewers = await Viewer.find(verificationQuery).lean();
+        const viewerIds = viewers.map((v) => v._id);
+
+        // Fetch ViewerGiveaways to check win history
+        const viewerGiveaways = await ViewerGiveaways.find({ viewer_id: { $in: viewerIds } }).lean();
+        const winsMap = new Map(viewerGiveaways.map((vg) => [vg.viewer_id.toString(), vg.total_wins]));
+
+        // Build weighted pool for luck factor
+        let pool = [];
+        viewerIds.forEach((viewerId) => {
+            const wins = winsMap.get(viewerId.toString()) || 0;
+            if (allowPreviousWinners || wins === 0) {
+                pool.push({ viewerId, weight: wins > 0 ? 1 : 2 }); // 1 for previous winners, 2 for non-winners
+            }
+        });
+
+        // Shuffle and pick winners using crypto.randomBytes
+        const winners = [];
+        for (let i = 0; i < Math.min(winnersCount, pool.length); i++) {
+            const randomIndex = getRandomIndex(pool.length);
+            winners.push(pool[randomIndex].viewerId);
+            pool.splice(randomIndex, 1);
+        }
+
+        // Update giveaway with winners
+        giveaway.winners = winners;
+        giveaway.status = "completed";
+        await giveaway.save();
+
+        // Update ViewerGiveaways for winners
+        await Promise.all(
+            winners.map(async (viewerId) => {
+                await ViewerGiveaways.findOneAndUpdate(
+                    { viewer_id: viewerId },
+                    {
+                        $addToSet: { giveaways: giveaway._id },
+                        $inc: { total_entries: 1, total_wins: 1 },
+                    },
+                    { upsert: true }
+                );
+            })
+        );
+
+        logger.info(`Winners drawn for giveaway ${id}: ${winners.length} selected`);
+        res.json({ success: true, data: { giveaway, winners } });
+    } catch (error) {
+        logger.error(`Error drawing winners for giveaway ${req.params.id}: ${error.message}`);
+        res.status(500).json({ success: false, message: "Internal Server Error" });
+    }
+});
+
+// User or Admin: Enter a ticket giveaway (Primal Pass Pick)
+router.post("/:id/enter", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.user_id; // From auth middleware
+
+        const giveaway = await Giveaway.findById(id);
+        if (!giveaway || giveaway.type !== "ticket") {
+            return res.status(404).json({ success: false, message: "Ticket giveaway not found" });
+        }
+
+        if (giveaway.status !== "active") {
+            return res.status(400).json({ success: false, message: "Giveaway is not active" });
+        }
+
+        if (new Date() < giveaway.start_date || new Date() > giveaway.end_date) {
+            return res.status(400).json({ success: false, message: "Giveaway is not within entry period" });
+        }
+
+        const viewer = await Viewer.findOne({
+            $or: [
+                { "twitch.user_id": userId },
+                { "kick.user_id": userId },
+                { "x.user_id": userId },
+            ],
+        });
+        if (!viewer) {
+            return res.status(404).json({ success: false, message: "Viewer not found" });
+        }
+
+        // Check if already entered
+        if (giveaway.entrants.includes(viewer._id)) {
+            return res.status(400).json({ success: false, message: "You have already entered this giveaway" });
+        }
+
+        giveaway.entrants.push(viewer._id);
+        await giveaway.save();
+
+        await ViewerGiveaways.findOneAndUpdate(
+            { viewer_id: viewer._id },
+            {
+                $addToSet: { giveaways: giveaway._id },
+                $inc: { total_entries: 1 },
+            },
+            { upsert: true }
+        );
+
+        logger.info(`Viewer ${viewer._id} entered giveaway ${id}`);
+
+        // Return additional information for UI feedback
+        res.json({
+            success: true,
+            message: "Successfully entered giveaway",
+            data: {
+                enteredAt: new Date(),
+                totalEntries: giveaway.entrants.length
+            }
+        });
+    } catch (error) {
+        logger.error(`Error entering giveaway ${req.params.id}: ${error.message}`);
+        res.status(500).json({ success: false, message: "Internal Server Error" });
+    }
+});
+
+router.get("/:id/entry-status", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.user_id; // From auth middleware
+
+        const giveaway = await Giveaway.findById(id);
+        if (!giveaway) {
+            return res.status(404).json({ success: false, message: "Giveaway not found" });
+        }
+
+        const viewer = await Viewer.findOne({
+            $or: [
+                { "twitch.user_id": userId },
+                { "kick.user_id": userId },
+                { "x.user_id": userId },
+            ],
+        });
+
+        if (!viewer) {
+            return res.status(404).json({ success: false, message: "Viewer not found" });
+        }
+
+        const hasEntered = giveaway.entrants.includes(viewer._id);
+
+        res.json({
+            success: true,
+            data: {
+                hasEntered,
+                giveawayStatus: giveaway.status,
+                isWinner: giveaway.winners.includes(viewer._id),
+                totalEntrants: giveaway.entrants.length,
+                giveaway: {
+                    id: giveaway._id,
+                    title: giveaway.title,
+                    startDate: giveaway.start_date,
+                    endDate: giveaway.end_date,
+                    type: giveaway.type,
+                    status: giveaway.status
+                }
+            }
+        });
+    } catch (error) {
+        logger.error(`Error checking entry status for giveaway ${req.params.id}: ${error.message}`);
+        res.status(500).json({ success: false, message: "Internal Server Error" });
+    }
+});
+
+router.get("/analytics", requireAdminOrWebmaster, async (req, res) => {
+    try {
+        // Aggregate total counts
+        const totalCount = await Giveaway.countDocuments();
+        const activeCount = await Giveaway.countDocuments({ status: "active" });
+        const closedCount = await Giveaway.countDocuments({ status: "closed" });
+        const completedCount = await Giveaway.countDocuments({ status: "completed" });
+
+        // Count total winners
+        const giveaways = await Giveaway.find({ winners: { $exists: true, $ne: [] } });
+        const winnerCount = giveaways.reduce((acc, giveaway) => acc + giveaway.winners.length, 0);
+
+        // Count by type
+        const rainCount = await Giveaway.countDocuments({ type: "rain" });
+        const chatCount = await Giveaway.countDocuments({ type: "chat" });
+        const ticketCount = await Giveaway.countDocuments({ type: "ticket" });
+
+        // Recent activity (last 10 giveaways)
+        const recentGiveaways = await Giveaway.find()
+            .sort({ createdAt: -1 })
+            .limit(10)
+            .lean();
+
+        res.json({
+            success: true,
+            data: {
+                totalCount,
+                activeCount,
+                closedCount,
+                completedCount,
+                winnerCount,
+                typeBreakdown: {
+                    rain: rainCount,
+                    chat: chatCount,
+                    ticket: ticketCount
+                },
+                recentActivity: recentGiveaways
+            }
+        });
+    } catch (error) {
+        logger.error(`Error fetching giveaway analytics: ${error.message}`);
+        res.status(500).json({ success: false, message: "Internal Server Error" });
+    }
+});
+
+export default router;

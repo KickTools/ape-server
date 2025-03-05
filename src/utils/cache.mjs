@@ -12,6 +12,10 @@ const CACHE_TTL_SECONDS = 60 * 5; // 5 minutes
 const VERIFY_CACHE_KEY_PREFIX = 'verify:';
 const VERIFY_FLOW_TTL = 60 * 15; // 15 minutes to complete verification
 
+// Chat cache settings
+const CHAT_CACHE_KEY_PREFIX = 'chatHistory:';
+const CHAT_CACHE_TTL = 60; // Cache chat messages for 60 seconds
+
 // Add verification-specific methods
 const verificationCache = {
   setTwitchData: (sessionId, data) => {
@@ -48,11 +52,30 @@ const verificationCache = {
   }
 };
 
+const chatCache = {
+  setMessages: (streamerId, viewerId, messages) => {
+    return statsCache.set(
+      `${CHAT_CACHE_KEY_PREFIX}${streamerId}:${viewerId}`, 
+      messages, 
+      CHAT_CACHE_TTL
+    );
+  },
+
+  getMessages: (streamerId, viewerId) => {
+    return statsCache.get(`${CHAT_CACHE_KEY_PREFIX}${streamerId}:${viewerId}`);
+  },
+
+  clearMessages: (streamerId, viewerId) => {
+    statsCache.del(`${CHAT_CACHE_KEY_PREFIX}${streamerId}:${viewerId}`);
+  }
+};
+
 export { 
   statsCache, 
   GLOBAL_STATS_CACHE_KEY, 
   DAILY_STATS_CACHE_KEY_PREFIX, 
   CACHE_TTL_SECONDS,
   verificationCache ,
-  VERIFY_FLOW_TTL
+  VERIFY_FLOW_TTL,
+  chatCache 
 };
