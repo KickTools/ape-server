@@ -43,6 +43,44 @@ router.get("/", requireAdminOrWebmaster, async (req, res) => {
     }
 });
 
+// Get eligible viewers count
+router.get("/eligible-viewers", requireAdminOrWebmaster, async (req, res) => {
+    try {
+        const verificationLevel = parseInt(req.query.verificationLevel) || 2;
+
+        // Build verification query based on level
+        const verificationQuery = {
+            $or: [
+                { "twitch.verified": true },
+                { "kick.verified": true },
+            ],
+        };
+
+        if (verificationLevel >= 3) {
+            verificationQuery["x.verified"] = true;
+        }
+        if (verificationLevel >= 4) {
+            verificationQuery["discord.verified"] = true;
+        }
+        if (verificationLevel >= 5) {
+            verificationQuery["telegram.verified"] = true;
+        }
+
+        const count = await Viewer.countDocuments(verificationQuery);
+
+        res.json({
+            success: true,
+            data: { count }
+        });
+    } catch (error) {
+        logger.error(`Error fetching eligible viewer count: ${error.message}`);
+        res.status(500).json({
+            success: false,
+            message: "Internal Server Error"
+        });
+    }
+});
+
 // Admin-only: Get viewer details by ID
 router.patch("/:id", requireAdminOrWebmaster, async (req, res) => {
     try {
@@ -111,24 +149,27 @@ router.post("/", requireAdminOrWebmaster, async (req, res) => {
             keyword,
             followLength,
             subscribersOnly,
-            startDate, // For Primal Pass Pick
-            endDate,   // For Primal Pass Pick
+            startDate,
+            endDate,
         } = req.body;
 
-        if (!title || !type || !winnersCount) {
-            return res.status(400).json({ success: false, message: "Title, type, and winnersCount are required" });
+        if (!title || !type) {
+            return res.status(400).json({ success: false, message: "Title, and type are required" });
         }
 
         if (type === "ticket" && (!startDate || !endDate)) {
             return res.status(400).json({ success: false, message: "Start and end dates are required for ticket giveaways" });
         }
 
+        // If type is rain, set status to closed since instant giveaway
+        const status = type === "rain" ? "closed" : "active";
+
         const giveaway = new Giveaway({
             title,
             type,
-            status: "active",
+            status: status,
             start_date: type === "ticket" ? new Date(startDate) : new Date(), // Default to now for non-ticket
-            end_date: type === "ticket" ? new Date(endDate) : undefined,
+            end_date: type === "ticket" ? new Date(endDate) : null,
             winners: [],
             entrants: [],
         });
@@ -204,7 +245,11 @@ router.post("/:id/draw", requireAdminOrWebmaster, async (req, res) => {
         if (verificationLevel >= 3) verificationQuery["x.verified"] = true;
         // Add more platforms if verificationLevel > 3 (e.g., 4, 5)
 
-        const viewers = await Viewer.find(verificationQuery).lean();
+        const viewers = await Viewer.find(verificationQuery).select("_id name").lean();
+        if (viewers.length === 0) {
+            return res.status(400).json({ success: false, message: "No eligible viewers found" });
+        }
+
         const viewerIds = viewers.map((v) => v._id);
 
         // Fetch ViewerGiveaways to check win history
@@ -213,31 +258,38 @@ router.post("/:id/draw", requireAdminOrWebmaster, async (req, res) => {
 
         // Build weighted pool for luck factor
         let pool = [];
-        viewerIds.forEach((viewerId) => {
-            const wins = winsMap.get(viewerId.toString()) || 0;
+        viewers.forEach((viewer) => {
+            const wins = winsMap.get(viewer._id.toString()) || 0;
             if (allowPreviousWinners || wins === 0) {
-                pool.push({ viewerId, weight: wins > 0 ? 1 : 2 }); // 1 for previous winners, 2 for non-winners
+                pool.push({ viewerId: viewer._id, name: viewer.name, weight: wins > 0 ? 1 : 2 }); // 1 for previous winners, 2 for non-winners
             }
         });
 
-        // Shuffle and pick winners using crypto.randomBytes
+        if (pool.length === 0) {
+            return res.status(400).json({ success: false, message: "No eligible winners in the pool" });
+        }
+
+        // Function to get a random index based on the pool size
+        const getRandomIndex = (size) => Math.floor(Math.random() * size);
+
+        // Shuffle and pick winners using a random selection
         const winners = [];
         for (let i = 0; i < Math.min(winnersCount, pool.length); i++) {
             const randomIndex = getRandomIndex(pool.length);
-            winners.push(pool[randomIndex].viewerId);
+            winners.push({ _id: pool[randomIndex].viewerId, name: pool[randomIndex].name });
             pool.splice(randomIndex, 1);
         }
 
         // Update giveaway with winners
-        giveaway.winners = winners;
+        giveaway.winners = winners.map((winner) => winner._id);
         giveaway.status = "completed";
         await giveaway.save();
 
         // Update ViewerGiveaways for winners
         await Promise.all(
-            winners.map(async (viewerId) => {
+            winners.map(async (winner) => {
                 await ViewerGiveaways.findOneAndUpdate(
-                    { viewer_id: viewerId },
+                    { viewer_id: winner._id },
                     {
                         $addToSet: { giveaways: giveaway._id },
                         $inc: { total_entries: 1, total_wins: 1 },
@@ -248,7 +300,11 @@ router.post("/:id/draw", requireAdminOrWebmaster, async (req, res) => {
         );
 
         logger.info(`Winners drawn for giveaway ${id}: ${winners.length} selected`);
-        res.json({ success: true, data: { giveaway, winners } });
+
+        res.json({ 
+            success: true, 
+            data: { giveaway, winners } 
+        });
     } catch (error) {
         logger.error(`Error drawing winners for giveaway ${req.params.id}: ${error.message}`);
         res.status(500).json({ success: false, message: "Internal Server Error" });
