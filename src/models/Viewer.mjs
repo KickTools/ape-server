@@ -7,7 +7,7 @@ import { VerifyViewerGlobalStats, VerifyViewerDailyStats } from './Analytics.mjs
 const viewerSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
-    role: { type: String, enum: ["regular", "admin", "webmaster"], default: "regular" },
+    role: { type: String, enum: ["regular", "admin", "webmaster", "owner"], default: "regular" },
     giveaways: {type: mongoose.Schema.Types.ObjectId, ref: "ViewerGiveaways"},
     twitch: {
       user_id: { type: String },

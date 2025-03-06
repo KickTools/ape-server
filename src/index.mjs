@@ -8,11 +8,13 @@ import cors from "cors";
 import logger from "./middlewares/logger.mjs";
 import authRoutes from "./routes/authRoute.mjs";
 import kickRoutes from "./routes/kickRoute.mjs";
+import adminRoute from "./routes/adminRoute.mjs";
 import leaderboardRoute from "./routes/leaderboardRoute.mjs";
 import dataReviewRoute from "./routes/dataReviewRoute.mjs";
 import dataSubmitRoute from "./routes/dataSubmitRoute.mjs";
 import analyticsRoute from "./routes/analyticsRoute.mjs";
 import giveawayRoute from "./routes/giveawayRoute.mjs";
+import eventsRoute from "./routes/eventsRoute.mjs";
 import { connectMongo } from "./services/mongo.mjs";
 import { verifySessionToken } from "./middlewares/sessionAuth.mjs";
 import { kickRateLimiter, leaderboardRateLimiter, analyticsRateLimiter } from "./middlewares/rateLimiter.mjs";
@@ -77,12 +79,14 @@ connectMongo()
 
 // Routes
 app.use("/auth", authRoutes); // Apply to all /auth routes
+app.use("/admin", verifySessionToken, adminRoute);
 app.use("/kick", kickRateLimiter, verifySessionToken, kickRoutes);
 app.use("/leaderboard", leaderboardRateLimiter, leaderboardRoute); 
 app.use("/analytics", analyticsRateLimiter, analyticsRoute);
 app.use("/data/retrieve", verifySessionToken, dataReviewRoute);
 app.use("/data/submit", verifySessionToken, dataSubmitRoute);
 app.use("/giveaways", verifySessionToken, giveawayRoute);
+app.use("/events", verifySessionToken, eventsRoute);
 
 // Error handling
 app.use((err, req, res, next) => {
