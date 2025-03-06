@@ -175,13 +175,9 @@ router.put("/:eventId/archive", requireAdminOrWebmaster, async (req, res) => {
 
 // Get public events (upcoming and ongoing only)
 router.get("/public", async (req, res) => {
-    console.log("Fetching public events");
+
     try {
         const currentDate = new Date();
-        logger.info("Fetching public events", { 
-            currentDate,
-            isoString: currentDate.toISOString()
-        });
 
         const events = await Event.find({
             $or: [
@@ -196,16 +192,6 @@ router.get("/public", async (req, res) => {
         })
         .sort({ date: 1 })
         .limit(10);
-
-        // Log the found events for debugging
-        logger.info("Found events", { 
-            count: events.length,
-            events: events.map(e => ({
-                name: e.name,
-                date: e.date,
-                status: e.status
-            }))
-        });
 
         // Transform the events data for the frontend
         const transformedEvents = events.map(event => {

@@ -11,6 +11,8 @@ const giveawaySchema = new mongoose.Schema({
     status: { type: String, enum: ["active", "closed", "completed", "canceled", "archived"], default: "active" },
     winners: [{ type: mongoose.Schema.Types.ObjectId, ref: "Viewer" }],
     entrants: [{ type: mongoose.Schema.Types.ObjectId, ref: "Viewer" }],
+    verificationLevel: { type: Number, default: 2 },
+    allowPreviousWinners: { type: Boolean, default: false },
 }, {
     timestamps: true,
     versionKey: false

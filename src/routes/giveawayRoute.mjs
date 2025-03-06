@@ -154,14 +154,29 @@ router.post("/", requireAdminOrWebmaster, async (req, res) => {
         } = req.body;
 
         if (!title || !type) {
-            return res.status(400).json({ success: false, message: "Title, and type are required" });
+            return res.status(400).json({ success: false, message: "Title and type are required" });
         }
 
         if (type === "ticket" && (!startDate || !endDate)) {
             return res.status(400).json({ success: false, message: "Start and end dates are required for ticket giveaways" });
         }
 
-        // If type is rain, set status to closed since instant giveaway
+        // Check for existing active or closed ticket giveaways
+        if (type === "ticket") {
+            const existingGiveaway = await Giveaway.findOne({
+                type: "ticket",
+                status: { $in: ["active", "closed"] }
+            });
+
+            if (existingGiveaway) {
+                return res.status(400).json({
+                    success: false,
+                    message: `A ticket giveaway (${existingGiveaway.title}) is already active or closed but not completed. Complete or cancel it before starting a new one.`,
+                });
+            }
+        }
+
+        // If type is rain, set status to closed since it's instant
         const status = type === "rain" ? "closed" : "active";
 
         const giveaway = new Giveaway({
@@ -172,6 +187,8 @@ router.post("/", requireAdminOrWebmaster, async (req, res) => {
             end_date: type === "ticket" ? new Date(endDate) : null,
             winners: [],
             entrants: [],
+            allowPreviousWinners: allowPreviousWinners || true,
+            verificationLevel: verificationLevel || 2,
         });
 
         await giveaway.save();
@@ -200,7 +217,7 @@ router.patch("/:id/status", requireAdminOrWebmaster, async (req, res) => {
         const { id } = req.params;
         const { status } = req.body;
 
-        if (!["active", "closed", "completed"].includes(status)) {
+        if (!["active", "closed", "completed", "canceled"].includes(status)) {
             return res.status(400).json({ success: false, message: "Invalid status" });
         }
 
@@ -226,12 +243,17 @@ router.post("/:id/draw", requireAdminOrWebmaster, async (req, res) => {
         const { id } = req.params;
         const { winnersCount, verificationLevel, allowPreviousWinners } = req.body;
 
+        console.log(`🔹 Received request to draw winners for giveaway ${id}`);
+        console.log(`➡️ Requested winners: ${winnersCount}, Verification Level: ${verificationLevel}, Allow Previous Winners: ${allowPreviousWinners}`);
+
         const giveaway = await Giveaway.findById(id);
         if (!giveaway) {
+            console.log(`❌ Giveaway ${id} not found.`);
             return res.status(404).json({ success: false, message: "Giveaway not found" });
         }
 
         if (giveaway.status === "completed") {
+            console.log(`❌ Giveaway ${id} already completed.`);
             return res.status(400).json({ success: false, message: "Giveaway already completed" });
         }
 
@@ -243,9 +265,10 @@ router.post("/:id/draw", requireAdminOrWebmaster, async (req, res) => {
             ],
         };
         if (verificationLevel >= 3) verificationQuery["x.verified"] = true;
-        // Add more platforms if verificationLevel > 3 (e.g., 4, 5)
 
         const viewers = await Viewer.find(verificationQuery).select("_id name").lean();
+        console.log(`✅ Found ${viewers.length} eligible viewers.`);
+
         if (viewers.length === 0) {
             return res.status(400).json({ success: false, message: "No eligible viewers found" });
         }
@@ -254,6 +277,8 @@ router.post("/:id/draw", requireAdminOrWebmaster, async (req, res) => {
 
         // Fetch ViewerGiveaways to check win history
         const viewerGiveaways = await ViewerGiveaways.find({ viewer_id: { $in: viewerIds } }).lean();
+        console.log(`🔍 Found ${viewerGiveaways.length} viewer giveaway entries.`);
+
         const winsMap = new Map(viewerGiveaways.map((vg) => [vg.viewer_id.toString(), vg.total_wins]));
 
         // Build weighted pool for luck factor
@@ -261,55 +286,195 @@ router.post("/:id/draw", requireAdminOrWebmaster, async (req, res) => {
         viewers.forEach((viewer) => {
             const wins = winsMap.get(viewer._id.toString()) || 0;
             if (allowPreviousWinners || wins === 0) {
-                pool.push({ viewerId: viewer._id, name: viewer.name, weight: wins > 0 ? 1 : 2 }); // 1 for previous winners, 2 for non-winners
+                pool.push({ viewerId: viewer._id, name: viewer.name, weight: wins > 0 ? 1 : 2 });
             }
         });
+
+        console.log(`🎲 Final pool size after filtering: ${pool.length}`);
 
         if (pool.length === 0) {
             return res.status(400).json({ success: false, message: "No eligible winners in the pool" });
         }
 
-        // Function to get a random index based on the pool size
-        const getRandomIndex = (size) => Math.floor(Math.random() * size);
-
         // Shuffle and pick winners using a random selection
+        const getRandomIndex = (size) => Math.floor(Math.random() * size);
         const winners = [];
-        for (let i = 0; i < Math.min(winnersCount, pool.length); i++) {
+
+        console.log(`🏆 Starting winner selection - Pool size: ${pool.length}, Winners requested: ${winnersCount}`);
+
+        while (winners.length < winnersCount && pool.length > 0) {
             const randomIndex = getRandomIndex(pool.length);
+            console.log(`🎯 Iteration ${winners.length + 1}: Selected index ${randomIndex}, Winner: ${pool[randomIndex].name}`);
+
             winners.push({ _id: pool[randomIndex].viewerId, name: pool[randomIndex].name });
             pool.splice(randomIndex, 1);
+
+            console.log(`📉 Pool size after removal: ${pool.length}`);
         }
+
+        console.log(`✅ Winners selected (${winners.length}):`, winners.map(w => w.name));
 
         // Update giveaway with winners
         giveaway.winners = winners.map((winner) => winner._id);
         giveaway.status = "completed";
+        console.log(`💾 Saving giveaway with winners: ${giveaway.winners.length}`);
         await giveaway.save();
 
         // Update ViewerGiveaways for winners
         await Promise.all(
             winners.map(async (winner) => {
-                await ViewerGiveaways.findOneAndUpdate(
-                    { viewer_id: winner._id },
-                    {
-                        $addToSet: { giveaways: giveaway._id },
-                        $inc: { total_entries: 1, total_wins: 1 },
-                    },
-                    { upsert: true }
-                );
+                try {
+                    await ViewerGiveaways.findOneAndUpdate(
+                        { viewer_id: winner._id },
+                        {
+                            $addToSet: { giveaways: giveaway._id },
+                            $inc: { total_entries: 1, total_wins: 1 },
+                        },
+                        { upsert: true }
+                    );
+                    console.log(`✅ Successfully updated viewer giveaways for ${winner.name}`);
+                } catch (error) {
+                    console.error(`❌ Failed to update winner ${winner.name}:`, error.message);
+                }
             })
         );
 
-        logger.info(`Winners drawn for giveaway ${id}: ${winners.length} selected`);
-
-        res.json({ 
-            success: true, 
-            data: { giveaway, winners } 
-        });
+        console.log(`🎉 Winners drawn for giveaway ${id}: ${winners.length} selected`);
+        res.json({ success: true, data: { giveaway, winners } });
     } catch (error) {
-        logger.error(`Error drawing winners for giveaway ${req.params.id}: ${error.message}`);
+        console.error(`🔥 Error drawing winners for giveaway ${req.params.id}: ${error.message}`);
         res.status(500).json({ success: false, message: "Internal Server Error" });
     }
 });
+
+// Admin-only: Draw a single winner for a giveaway
+router.post("/:id/draw-single", requireAdminOrWebmaster, async (req, res) => {
+    try {
+      const { id } = req.params;
+      let { verificationLevel, allowPreviousWinners } = req.body;
+  
+      console.log(`🔹 Received request to draw a single winner for giveaway ${id}`);
+      
+      const giveaway = await Giveaway.findById(id);
+      if (!giveaway) {
+        console.log(`❌ Giveaway ${id} not found.`);
+        return res.status(404).json({ success: false, message: "Giveaway not found" });
+      }
+  
+      // Use values from the giveaway if not provided in the request
+      verificationLevel = verificationLevel ?? giveaway.verificationLevel ?? 2;
+      allowPreviousWinners = allowPreviousWinners ?? giveaway.allowPreviousWinners ?? false;
+  
+      console.log(`➡️ Using Verification Level: ${verificationLevel}, Allow Previous Winners: ${allowPreviousWinners}`);
+  
+      if (giveaway.status === "completed") {
+        console.log(`❌ Giveaway ${id} already completed.`);
+        return res.status(400).json({ success: false, message: "Giveaway already completed" });
+      }
+  
+      // Ensure giveaway is in closed status
+      if (giveaway.status !== "closed") {
+        console.log(`❌ Giveaway ${id} must be closed before drawing winners.`);
+        return res.status(400).json({ success: false, message: "Giveaway must be closed before drawing winners" });
+      }
+  
+      // Check if there are entrants
+      if (!giveaway.entrants || giveaway.entrants.length === 0) {
+        console.log(`❌ No entrants for giveaway ${id}.`);
+        return res.status(400).json({ success: false, message: "No entrants found for this giveaway" });
+      }
+      
+      console.log(`✅ Found ${giveaway.entrants.length} entrants for this giveaway.`);
+  
+      // Get detailed info about the entrants
+      const entrantViewers = await Viewer.find({
+        _id: { $in: giveaway.entrants }
+      }).select("_id name").lean();
+      
+      console.log(`✅ Found ${entrantViewers.length} entrant viewers with details.`);
+  
+      if (entrantViewers.length === 0) {
+        return res.status(400).json({ success: false, message: "No valid entrants found for this giveaway" });
+      }
+  
+      // Fetch ViewerGiveaways to check win history
+      const viewerGiveaways = await ViewerGiveaways.find({ 
+        viewer_id: { $in: giveaway.entrants } 
+      }).lean();
+      
+      console.log(`🔍 Found ${viewerGiveaways.length} viewer giveaway entries for these entrants.`);
+  
+      const winsMap = new Map(viewerGiveaways.map((vg) => [vg.viewer_id.toString(), vg.total_wins]));
+  
+      // Build weighted pool for luck factor - ONLY from entrants
+      let pool = [];
+      entrantViewers.forEach((viewer) => {
+        // Skip viewers who are already winners in this giveaway
+        if (giveaway.winners.some(w => w.toString() === viewer._id.toString())) {
+          console.log(`👉 Skipping viewer ${viewer.name} as they are already a winner in this giveaway.`);
+          return;
+        }
+        
+        const wins = winsMap.get(viewer._id.toString()) || 0;
+        if (allowPreviousWinners || wins === 0) {
+          pool.push({ viewerId: viewer._id, name: viewer.name, weight: wins > 0 ? 1 : 2 });
+          console.log(`👍 Adding viewer ${viewer.name} to the pool with weight ${wins > 0 ? 1 : 2}.`);
+        } else {
+          console.log(`👉 Skipping viewer ${viewer.name} as they have ${wins} previous wins and allowPreviousWinners is false.`);
+        }
+      });
+  
+      console.log(`🎲 Final pool size after filtering: ${pool.length}`);
+  
+      if (pool.length === 0) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "No eligible winners in the pool. This may be because all entrants have already won in previous giveaways and 'Allow Previous Winners' is disabled."
+        });
+      }
+  
+      // Select a single random winner
+      const randomIndex = getRandomIndex(pool.length);
+      const winner = pool[randomIndex];
+      console.log(`🎯 Selected winner: ${winner.name}`);
+      
+      // Add winner to the giveaway
+      giveaway.winners.push(winner.viewerId);
+      
+      // If all winners have been drawn, mark as completed
+      const winnersCount = giveaway.winnersCount || 1; // Default to 1 if not set
+      if (giveaway.winners.length >= winnersCount) {
+        giveaway.status = "completed";
+        console.log(`✅ All winners drawn, marking giveaway as completed`);
+      }
+      
+      await giveaway.save();
+  
+      // Update ViewerGiveaways for the winner
+      await ViewerGiveaways.findOneAndUpdate(
+        { viewer_id: winner.viewerId },
+        {
+          $addToSet: { giveaways: giveaway._id },
+          $inc: { total_entries: 1, total_wins: 1 },
+        },
+        { upsert: true }
+      );
+      console.log(`✅ Successfully updated viewer giveaways for ${winner.name}`);
+      
+      res.json({ 
+        success: true, 
+        data: { 
+          giveaway, 
+          winner: winner.viewerId,
+          isComplete: giveaway.status === "completed"
+        } 
+      });
+      
+    } catch (error) {
+      console.error(`🔥 Error drawing single winner for giveaway ${req.params.id}: ${error.message}`);
+      res.status(500).json({ success: false, message: "Internal Server Error" });
+    }
+  });
 
 // User or Admin: Enter a ticket giveaway (Primal Pass Pick)
 router.post("/:id/enter", async (req, res) => {
