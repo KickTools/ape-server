@@ -232,50 +232,61 @@ class StreamingAuthRouter {
       const verificationId = req.cookies.verification_session;
 
       if (!verificationId) {
+        logger.error("No verification session cookie found");
         return res.status(401).json({
           success: false,
           message: "No verification session found"
         });
       }
 
-      // Retrieve Twitch data from cache
       const cachedData = verificationCache.getTwitchData(verificationId);
-
       if (!cachedData || !cachedData.tokens || !cachedData.tokens.access_token) {
+        logger.error("Cached data missing or invalid", { verificationId });
         return res.status(401).json({
           success: false,
           message: "No valid access token found in cache"
         });
       }
 
+      const now = Date.now();
+      const expiresAt = cachedData.expiresAt.getTime();
+
+      if (now > expiresAt) {
+        logger.error("Cached token has expired", { verificationId, expiresAt, now });
+        return res.status(401).json({
+          success: false,
+          message: "Token has expired"
+        });
+      }
+
       const accessToken = cachedData.tokens.access_token;
 
       try {
-        // Verify Twitch token
         const twitchUserData = await this.twitchAuth.validateToken(accessToken);
 
-        // Initialize TwitchAPIClient with the validated access token
         this.twitchClient = new TwitchAPIClient({
           clientId: this.twitchAuth.TWITCH_CLIENT_ID,
           accessToken: accessToken
         });
 
-        // Get detailed user data using the validated user ID
         const userData = await this.twitchClient.getCurrentUser();
-
         return res.json({
           success: true,
-          user: userData // This will contain the full user data from Twitch API
+          user: userData
         });
       } catch (error) {
-        console.error('[handleUserData] Token verification or user data fetch error:', error);
+        logger.error("Token validation failed", {
+          verificationId,
+          error: error.message,
+          status: error.response?.status
+        });
         return res.status(401).json({
           success: false,
           message: "Invalid or expired token"
         });
       }
     } catch (error) {
-      console.error("[handleUserData] Error in /auth/user:", error);
+      logger.error("[handleUserData] Unexpected error", { error: error.message });
       return res.status(500).json({
         success: false,
         message: "Error getting user data",
@@ -316,36 +327,31 @@ class StreamingAuthRouter {
 
   async handleVerifyTwitchToken(req, res) {
     try {
-      const accessToken = req.cookies.access_token;
-
-      if (!accessToken) {
-        return res.status(401).json({
-          isValid: false,
-          message: "No access token found"
-        });
+      const verificationId = req.cookies.verification_session;
+      if (!verificationId) {
+        logger.error("No verification session");
+        return res.status(401).json({ isValid: false, message: "No verification session" });
       }
 
-      // Verify with Twitch
+      const cachedData = verificationCache.getTwitchData(verificationId);
+      if (!cachedData || !cachedData.tokens) {
+        logger.error("No cached Twitch data", { verificationId });
+        return res.status(401).json({ isValid: false, message: "No cached token" });
+      }
+
+      const accessToken = cachedData.tokens.access_token;
+
       const isValid = await this.twitchAuth.validateToken(accessToken);
-
       if (!isValid) {
-        return res.status(401).json({
-          isValid: false,
-          message: "Invalid token"
-        });
+        return res.status(401).json({ isValid: false, message: "Invalid token" });
       }
 
-      // Get user data since token is valid
-      this.twitchClient = new TwitchAPIClient({
+      const twitchClient = new TwitchAPIClient({
         clientId: this.twitchAuth.TWITCH_CLIENT_ID,
         accessToken: accessToken
       });
-
-      const data = await this.twitchClient.getCurrentUser();
-      const userData = {
-        ...data,
-        user_id: data.id
-      };
+      const data = await twitchClient.getCurrentUser();
+      const userData = { ...data, user_id: data.id };
 
       return res.json({
         isValid: true,
@@ -353,14 +359,8 @@ class StreamingAuthRouter {
         platform: 'twitch'
       });
     } catch (error) {
-      logger.error("Token verification error", {
-        error: error.message
-      });
-
-      return res.status(401).json({
-        isValid: false,
-        message: "Token verification failed"
-      });
+      logger.error("Twitch token verification error", { error: error.message });
+      return res.status(401).json({ isValid: false, message: "Token verification failed" });
     }
   }
 
@@ -531,7 +531,6 @@ class StreamingAuthRouter {
       // Then fetch detailed user data using kickService
       try {
         const detailedUserData = await fetchKickUserData(basicUserData.name);
-        console.log("Detailed Kick user data:", detailedUserData);
 
         return res.json({
           success: true,
@@ -617,13 +616,13 @@ class StreamingAuthRouter {
       const accessToken = req.cookies.kick_access_token;
 
       if (!accessToken) {
+        logger.error("No Kick access token in cookies");
         return res.status(401).json({
           isValid: false,
           message: "No Kick access token found"
         });
       }
 
-      // Set token and verify by making a request
       this.kickClient.setAccessToken(accessToken);
       const response = await this.kickClient.getUsers();
 
@@ -633,10 +632,7 @@ class StreamingAuthRouter {
         platform: 'kick'
       });
     } catch (error) {
-      logger.error("Kick token verification error", {
-        error: error.message
-      });
-
+      logger.error("Kick token verification error", { error: error.message });
       return res.status(401).json({
         isValid: false,
         message: "Token verification failed"
@@ -881,11 +877,11 @@ class StreamingAuthRouter {
     const redirectBase = process.env.NODE_ENV === "production"
       ? process.env.FRONTEND_URL
       : process.env.BACKEND_URL;
-  
-    const redirectPath = isVerification 
-      ? `auth/?auth_flow=verified&platform=${platform}` 
+
+    const redirectPath = isVerification
+      ? `auth/?auth_flow=verified&platform=${platform}`
       : `auth/redirect?platform=${platform}`;
-  
+
     res.redirect(`${redirectBase}/${redirectPath}`);
   }
 
