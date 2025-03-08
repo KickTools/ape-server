@@ -2,12 +2,14 @@ import logger from "../middlewares/logger.mjs";
 import { Viewer } from "../models/Viewer.mjs";
 import { Profile } from "../models/Profile.mjs";
 import { Session } from "../models/Session.mjs";
-import { generateSessionToken } from "./auth.mjs"; // Import to regenerate tokens
+import { generateSessionToken, saveXSession } from "./auth.mjs"; // Import to regenerate tokens
 
 export async function saveTwitchUserData(userData) {
   const startTime = Date.now();
   try {
+
     if (!userData || !userData.user_id || !userData.login || !userData.display_name) {
+      console.error("Missing fields:", userData);
       throw new Error("Missing required Twitch user data fields");
     }
 
@@ -15,7 +17,9 @@ export async function saveTwitchUserData(userData) {
       platform: "twitch",
       user_id: userData.user_id
     });
+
     if (!session) {
+      console.error("No session found for Twitch user:", userData.user_id);
       throw new Error("Session record not found for Twitch user");
     }
 
@@ -41,6 +45,11 @@ export async function saveTwitchUserData(userData) {
       { new: true, upsert: true }
     );
 
+    if (!profile) {
+      console.error("Profile creation/update failed for:", userData.email);
+      throw new Error("Failed to create or update Twitch profile");
+    }
+
     const viewer = await Viewer.findOneAndUpdate(
       {
         $or: [
@@ -64,6 +73,7 @@ export async function saveTwitchUserData(userData) {
 
     return viewer;
   } catch (error) {
+    console.error("Error details:", error);
     logger.error("Failed to save Twitch user data", {
       error: error.message,
       duration: Date.now() - startTime
@@ -71,6 +81,7 @@ export async function saveTwitchUserData(userData) {
     throw error;
   }
 }
+
 
 export async function saveKickUserData(userData, existingViewer = null) {
   try {
@@ -154,9 +165,8 @@ export async function saveCombinedUserData(twitchData, kickData) {
   let kickResult;
 
   try {
-    if (twitchData && twitchData.user) {
-      const twitchUser = twitchData.user;
-      twitchResult = await saveTwitchUserData(twitchUser);
+    if (twitchData) {
+       twitchResult = await saveTwitchUserData(twitchData);
     } else {
       logger.warn("Twitch data missing or incomplete, skipping Twitch save");
     }
@@ -174,7 +184,7 @@ export async function saveCombinedUserData(twitchData, kickData) {
     );
 
     const twitchSessionToken = twitchResult
-      ? generateSessionToken(twitchData.user.id, viewer.role)
+      ? generateSessionToken(twitchData.id, viewer.role)
       : null;
     const kickSessionToken = generateSessionToken(kickData.user_id, viewer.role);
 
@@ -194,6 +204,122 @@ export async function saveCombinedUserData(twitchData, kickData) {
     logger.error("Failed to save combined user data", {
       error: error.message,
       duration: Date.now() - startTime
+    });
+    throw error;
+  }
+}
+
+export async function saveXUserData(tokens, xUserData, mainUserId) {
+  const startTime = Date.now();
+  try {
+      if (!xUserData || !xUserData.id || !xUserData.username) {
+          throw new Error("Missing required X user data fields");
+      }
+
+      // Save session
+      const session = await saveXSession(tokens, xUserData);
+
+      // Save profile
+      const profile = await Profile.findOneAndUpdate(
+          { "x.id": xUserData.id },
+          {
+              $set: {
+                  id: xUserData.id,
+                  x: {
+                      id: xUserData.id,
+                      username: xUserData.username,
+                      name: xUserData.name,
+                      profile_image_url: xUserData.profile_image_url,
+                      created_at: new Date()
+                  }
+              }
+          },
+          { new: true, upsert: true }
+      );
+
+      // Find and update viewer
+      const viewer = await Viewer.findOneAndUpdate(
+          {
+              $or: [
+                  { "twitch.user_id": mainUserId },
+                  { "kick.user_id": mainUserId }
+              ]
+          },
+          {
+              $set: {
+                  "x.user_id": xUserData.id,
+                  "x.username": xUserData.username,
+                  "x.verified": true,
+                  "x.verified_at": new Date(),
+                  "x.session": session._id,
+                  "x.profile": profile._id
+              }
+          },
+          { new: true }
+      );
+
+      if (!viewer) {
+          throw new Error("Viewer not found for main user ID");
+      }
+
+      logger.info(`X user data saved successfully`, {
+          xId: xUserData.id,
+          mainUserId,
+          duration: Date.now() - startTime
+      });
+
+      return { viewer, session, profile };
+  } catch (error) {
+      logger.error(`Failed to save X user data: ${error.message}`, {
+          xId: xUserData?.id,
+          mainUserId,
+          duration: Date.now() - startTime
+      });
+      throw error;
+  }
+}
+
+export async function saveXConnectionToUser(mainUserId, xData, profileId, sessionId) {
+  try {
+    // Find the user by twitch or kick ID
+    const user = await Viewer.findOne({
+      $or: [
+        { "twitch.user_id": mainUserId },
+        { "kick.user_id": mainUserId }
+      ]
+    });
+
+    if (!user) {
+      logger.error(`User not found for ID ${mainUserId} when saving X connection`);
+      throw new Error('User not found');
+    }
+
+    // Update the user's X connection info
+    user.x = {
+      user_id: xData.id,
+      username: xData.username,
+      verified: true,
+      verified_at: new Date(),
+      session: sessionId,
+      profile: profileId
+    };
+
+    await user.save();
+
+    logger.info(`X connection saved to user ${user.name} (${mainUserId})`, {
+      xId: xData.id,
+      xUsername: xData.username,
+      timestamp: new Date().toISOString(),
+      currentUser: 'KickTools'
+    });
+
+    return user;
+  } catch (error) {
+    logger.error(`Error saving X connection to user: ${error.message}`, {
+      mainUserId,
+      xId: xData.id,
+      timestamp: new Date().toISOString(),
+      currentUser: 'KickTools'
     });
     throw error;
   }

@@ -206,4 +206,39 @@ router.get('/search/viewers', requireAdminOrWebmaster, async (req, res) => {
   }
 });
 
+// Get verification level of a viewer, or by platform and user_id
+router.get('/viewers/verification', async (req, res) => {
+  try {
+    let viewer;
+    const { viewerId, platform, userId } = req.query;
+
+    if (viewerId) {
+      viewer = await Viewer.findById(viewerId);
+    } else if (platform && userId) {
+      viewer = await Viewer.findOne({ [`${platform}.user_id`]: userId });
+    } else {
+      return res.status(400).json({ error: 'Either viewerId or platform and userId are required' });
+    }
+
+    if (!viewer) {
+      return res.status(404).json({ error: 'Viewer not found' });
+    }
+
+    let verificationLevel = 0;
+    const verificationStatus = {
+      twitch: viewer.twitch?.verified || false,
+      kick: viewer.kick?.verified || false,
+      x: viewer.x?.verified || false,
+    };
+
+    // Count the number of verified platforms
+    verificationLevel = Object.values(verificationStatus).filter(Boolean).length;
+
+    res.json({ verificationLevel, verificationStatus });
+  } catch (error) {
+    console.error(`Error fetching verification level: ${error.message}`);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
 export default router;

@@ -17,7 +17,7 @@ import {
   getKickSessionTokens,
   getXSessionTokens
 } from "../utils/auth.mjs";
-import { saveCombinedUserData, saveKickUserData, saveTwitchUserData } from "../utils/saveUserData.mjs";
+import { saveCombinedUserData, saveKickUserData, saveTwitchUserData, saveXUserData } from "../utils/saveUserData.mjs";
 import { getAccessTokenCookieConfig, getRefreshTokenCookieConfig } from '../utils/cookieConfig.mjs';
 import logger from "../middlewares/logger.mjs";
 import jwt from 'jsonwebtoken';
@@ -76,6 +76,9 @@ class StreamingAuthRouter {
     this.router.get("/x/user", verifySessionToken, this.handleXUserData.bind(this));
     this.router.post("/x/refresh", verifySessionToken, this.handleXRefresh.bind(this));
     this.router.post("/x/logout", verifySessionToken, this.handleXLogout.bind(this));
+
+    // Connections Status Route
+    this.router.get("/connections/status", verifySessionToken, this.handleConnectionsStatus.bind(this));
 
     // Protected Kick Routes
     this.router.get("/kick/user", verifySessionToken, this.handleKickUserData.bind(this));
@@ -160,6 +163,7 @@ class StreamingAuthRouter {
       // Handle verification flow differently than regular login
       if (isVerification) {
         const verificationId = state.split('_')[1];
+
         await verificationCache.setTwitchData(verificationId, {
           userData,
           tokens,
@@ -173,17 +177,17 @@ class StreamingAuthRouter {
 
       } else {
         const expiresAt = new Date(Date.now() + tokens.expires_in * 1000);
+
         await saveTwitchSession(tokens, userData, expiresAt);
         const viewer = await Viewer.findOne({ "twitch.user_id": userData.id });
         const sessionToken = generateSessionToken(userData.id, viewer?.role);
 
         res.cookie('twitch_session_token', sessionToken, getSessionCookieConfig());
-        res.cookie('access_token', tokens.access_token, getAccessTokenCookieConfig());
-        res.cookie('refresh_token', tokens.refresh_token, getRefreshTokenCookieConfig());
+        res.cookie('twitch_access_token', tokens.access_token, getAccessTokenCookieConfig());
+        res.cookie('twitch_refresh_token', tokens.refresh_token, getRefreshTokenCookieConfig());
       }
 
       this.redirectToCallback(res, isVerification, "twitch");
-      const duration = Date.now() - startTime;
 
     } catch (error) {
       console.error('[Twitch Callback] Error occurred:', {
@@ -326,43 +330,55 @@ class StreamingAuthRouter {
   }
 
   async handleVerifyTwitchToken(req, res) {
+
     try {
-      const verificationId = req.cookies.verification_session;
-      if (!verificationId) {
-        logger.error("No verification session");
-        return res.status(401).json({ isValid: false, message: "No verification session" });
+      // First try direct access token (original working approach)
+      let accessToken = req.cookies.twitch_access_token;
+      
+      // If no direct access token, try verification flow
+      if (!accessToken) {
+        const verificationId = req.cookies.verification_session;
+        if (!verificationId) {
+          logger.error("No token or verification session");
+          return res.status(401).json({ isValid: false, message: "No authentication found" });
+        }
+  
+        // Try to get from verification cache
+        const cachedData = verificationCache.getTwitchData(verificationId);
+        if (!cachedData || !cachedData.tokens) {
+          logger.error("No cached Twitch data", { verificationId });
+          return res.status(401).json({ isValid: false, message: "No cached token" });
+        }
+  
+        accessToken = cachedData.tokens.access_token;
       }
-
-      const cachedData = verificationCache.getTwitchData(verificationId);
-      if (!cachedData || !cachedData.tokens) {
-        logger.error("No cached Twitch data", { verificationId });
-        return res.status(401).json({ isValid: false, message: "No cached token" });
-      }
-
-      const accessToken = cachedData.tokens.access_token;
-
+  
+      // Verify with Twitch
       const isValid = await this.twitchAuth.validateToken(accessToken);
       if (!isValid) {
         return res.status(401).json({ isValid: false, message: "Invalid token" });
       }
-
-      const twitchClient = new TwitchAPIClient({
+  
+      // Get user data since token is valid
+      this.twitchClient = new TwitchAPIClient({
         clientId: this.twitchAuth.TWITCH_CLIENT_ID,
         accessToken: accessToken
       });
-      const data = await twitchClient.getCurrentUser();
+  
+      const data = await this.twitchClient.getCurrentUser();
       const userData = { ...data, user_id: data.id };
-
+  
       return res.json({
         isValid: true,
         user: userData,
         platform: 'twitch'
       });
     } catch (error) {
-      logger.error("Twitch token verification error", { error: error.message });
+      logger.error("Token verification error", { error: error.message });
       return res.status(401).json({ isValid: false, message: "Token verification failed" });
     }
   }
+
 
   async handleTwitchLogout(req, res) {
     try {
@@ -433,6 +449,7 @@ class StreamingAuthRouter {
       // For verification flow, check if we have Twitch data
       if (isVerification && verificationId) {
         const twitchData = await verificationCache.getTwitchData(verificationId);
+
         if (!twitchData) {
           logger.error("Missing Twitch verification data");
           return this.redirectToError(res);
@@ -642,30 +659,194 @@ class StreamingAuthRouter {
 
   // X Authentication Handlers
   handleXLogin(req, res) {
-    const state = `xlogin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // Extract the user ID from the existing session
+    const sessionToken = req.cookies.session_token ||
+      req.cookies.twitch_session_token ||
+      req.cookies.kick_session_token;
+
+    let userId = null;
+    if (sessionToken) {
+      try {
+        const decoded = jwt.verify(sessionToken, process.env.JWT_SECRET);
+        userId = decoded.user_id;
+      } catch (error) {
+        logger.error("Error decoding session token", { error: error.message });
+      }
+    }
+
+    // Include user ID in the state parameter
+    const state = `xconnect_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${userId}`;
     const { url, codeVerifier } = this.xAuth.getAuthorizationUrl(state);
-    this.pendingAuth.set(state, { codeVerifier });
+    this.pendingAuth.set(state, { codeVerifier, userId });
     res.redirect(url);
   }
 
   async handleXCallback(req, res) {
-    const { code, state } = req.query;
-    const pending = this.pendingAuth.get(state);
-    if (!pending) {
-      return res.status(400).send("Invalid state");
-    }
-    this.pendingAuth.delete(state);
-
+    const startTime = Date.now();
     try {
-      const tokens = await this.xAuth.getToken(code, pending.codeVerifier);
-      const userData = await this.xAuth.getUserData(tokens.access_token);
-      const sessionToken = generateSessionToken(userData.id);
-      await saveXSession(userData.id, tokens);
-      res.cookie('session_token', sessionToken, getSessionCookieConfig());
-      res.redirect('/dashboard'); // Adjust redirect as needed
+        const { code, state } = req.query;
+        
+        const pending = this.pendingAuth.get(state);
+        if (!pending) {
+            logger.error("Invalid state in X callback");
+            return res.redirect(`${process.env.BACKEND_URL}/user/settings?error=1`);
+        }
+        
+        this.pendingAuth.delete(state);
+        
+        // Extract user ID from state
+        const stateParts = state.split('_');
+        const mainUserId = pending.userId || (stateParts.length >= 4 ? stateParts[3] : null);
+        
+        if (!mainUserId) {
+            logger.error("No user ID found in state");
+            return res.redirect(`${process.env.BACKEND_URL}/user/settings?error=1`);
+        }
+        
+        // Get tokens from X
+        const tokens = await this.xAuth.getToken(code, pending.codeVerifier);
+        
+        // Get user data from X
+        const xUserData = await this.xAuth.getUserData(tokens.access_token);
+        
+        // Save all data using the new function
+        const { viewer } = await saveXUserData(tokens, xUserData, mainUserId);
+        
+        // Generate session token
+        const sessionToken = generateSessionToken(xUserData.id, viewer?.role);
+        
+        // Set cookie
+        res.cookie('x_session_token', sessionToken, getSessionCookieConfig());
+        
+        // Redirect back to settings
+        logger.info("Redirecting back to settings...", {
+            duration: Date.now() - startTime
+        });
+        return res.redirect(`${process.env.BACKEND_URL}/user/settings`);
+
     } catch (error) {
-      logger.error('X Callback Error:', error);
-      res.status(500).send("Authentication failed");
+        logger.error(`X Callback Error: ${error.stack}`, {
+            duration: Date.now() - startTime
+        });
+        return res.redirect(`${process.env.BACKEND_URL}/user/settings?error=1`);
+    }
+}
+
+  async saveXConnection(mainUserId, xData, tokens) {
+    try {
+      logger.info(`Saving X connection for user ${mainUserId}`, {
+        x_user_id: xData.id,
+        x_username: xData.username
+      });
+
+      // Find the user's document
+      const user = await Viewer.findOne({
+        $or: [
+          { "twitch.user_id": mainUserId },
+          { "kick.user_id": mainUserId }
+        ]
+      });
+
+      if (!user) {
+        logger.error(`User not found for ID ${mainUserId}`);
+        throw new Error('User not found');
+      }
+
+      // Create or update the X session
+      const session = new Session({
+        user_id: xData.id,
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        expires_at: new Date(Date.now() + tokens.expires_in * 1000),
+        platform: 'x'
+      });
+
+      await session.save();
+
+      // Create or update X profile
+      const profile = new Profile({
+        id: xData.id,
+        x: {
+          id: xData.id,
+          username: xData.username,
+          name: xData.name,
+          profile_image_url: xData.profile_image_url,
+          created_at: new Date(),
+          description: xData.description,
+          followers_count: xData.public_metrics?.followers_count,
+          following_count: xData.public_metrics?.following_count
+        }
+      });
+
+      await profile.save();
+
+      // Update the user document with X information
+      user.x = {
+        user_id: xData.id,
+        username: xData.username,
+        verified: true,
+        verified_at: new Date(),
+        session: session._id,
+        profile: profile._id
+      };
+
+      await user.save();
+
+      return user;
+    } catch (error) {
+      logger.error(`Error saving X connection: ${error.message}`, { mainUserId, x_id: xData.id });
+      throw error;
+    }
+  }
+
+  async handleConnectionsStatus(req, res) {
+    try {
+      const userId = req.user.user_id;
+
+      // Find the user by their ID
+      const user = await Viewer.findOne({
+        $or: [
+          { "twitch.user_id": userId },
+          { "kick.user_id": userId }
+        ]
+      });
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found"
+        });
+      }
+
+      // Return the connection status for each service
+      const connections = {
+        x: {
+          user_id: user.x?.user_id || null,
+          username: user.x?.username || null,
+          verified: Boolean(user.x?.verified)
+        },
+        twitch: {
+          user_id: user.twitch?.user_id || null,
+          username: user.twitch?.username || null,
+          verified: Boolean(user.twitch?.verified)
+        },
+        kick: {
+          user_id: user.kick?.user_id || null,
+          username: user.kick?.username || null,
+          verified: Boolean(user.kick?.verified)
+        }
+      };
+
+      return res.json({
+        success: true,
+        connections
+      });
+    } catch (error) {
+      logger.error("Error getting connections status:", error.message);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to fetch connection status"
+      });
     }
   }
 

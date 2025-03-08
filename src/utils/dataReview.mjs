@@ -202,7 +202,15 @@ export async function getViewerByUserId(platform, userId) {
         model: 'Profile'
       })
       .populate({
-        path: `${platform === 'twitch' ? 'kick.profile' : 'twitch.profile'}`,
+        path: 'twitch.profile',
+        model: 'Profile'
+      })
+      .populate({
+        path: 'kick.profile',
+        model: 'Profile'
+      })
+      .populate({
+        path: 'x.profile',
         model: 'Profile'
       });
 
@@ -213,6 +221,8 @@ export async function getViewerByUserId(platform, userId) {
     // Transform the data to match the frontend interface
     const transformedViewer = {
       viewer_id: viewer._id,
+      role: viewer.role, // Include role
+      name: viewer.name, // Include name
       twitch: viewer.twitch?.profile?.twitch 
         ? {
             user_id: viewer.twitch.user_id,
@@ -248,12 +258,26 @@ export async function getViewerByUserId(platform, userId) {
             created_at: viewer.kick.profile.kick.created_at,
             social_links: viewer.kick.profile.kick.social_links || {}
           }
+        : null,
+      x: viewer.x?.profile?.x
+        ? {
+            id: viewer.x.user_id,
+            user_id: viewer.x.user_id,
+            username: viewer.x.username,
+            name: viewer.x.profile.x.name,
+            profile_image_url: viewer.x.profile.x.profile_image_url,
+            description: viewer.x.profile.x.description,
+            followers_count: viewer.x.profile.x.followers_count,
+            following_count: viewer.x.profile.x.following_count,
+            created_at: viewer.x.profile.x.created_at
+          }
         : null
     };
 
     // Remove null values
     if (!transformedViewer.twitch) delete transformedViewer.twitch;
     if (!transformedViewer.kick) delete transformedViewer.kick;
+    if (!transformedViewer.x) delete transformedViewer.x;
 
     return transformedViewer;
   } catch (error) {

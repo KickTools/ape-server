@@ -116,70 +116,56 @@ export const getKickSessionTokens = async (userId) => {
     }
 };
 
-export async function saveXSession(userId, tokens) {
-    try {
+export async function saveXSession(tokens, userData) {  // Modified to accept tokens directly
+  try {
       const encryptedAccessToken = encrypt(tokens.access_token);
       const encryptedRefreshToken = encrypt(tokens.refresh_token);
-      
+
       const session = await Session.findOneAndUpdate(
-        { user_id: userId, platform: 'x' },
-        {
-          user_id: userId,
-          access_token: encryptedAccessToken,
-          refresh_token: encryptedRefreshToken,
-          expires_at: new Date(Date.now() + tokens.expires_in * 1000),
-          platform: 'x'
-        },
-        { upsert: true, new: true }
+          { user_id: userData.id, platform: 'x' },
+          {
+              user_id: userData.id,
+              access_token: encryptedAccessToken,
+              refresh_token: encryptedRefreshToken,
+              expires_at: new Date(Date.now() + tokens.expires_in * 1000),
+              platform: 'x'
+          },
+          { upsert: true, new: true }
       );
-      
-      logger.info(`X session saved for user ${userId}`, {
-        timestamp: new Date().toISOString(),
-        currentUser: 'KickTools'
-      });
-      
+
+      logger.info(`X session saved successfully for user ${userData.id}`);
       return session;
-    } catch (error) {
-      logger.error(`Failed to save X session: ${error.message}`, {
-        userId,
-        timestamp: new Date().toISOString(),
-        currentUser: 'KickTools',
-        stack: error.stack
-      });
+  } catch (error) {
+      logger.error(`Error saving X session: ${error.message}`, { userId: userData.id });
       throw error;
-    }
   }
-  
-  export async function getXSessionTokens(userId) {
-    try {
-      const session = await Session.findOne({ user_id: userId, platform: 'x' });
-      
-      if (!session) {
-        logger.warn(`No X session found for user ${userId}`, {
-          timestamp: new Date().toISOString(),
-          currentUser: 'KickTools'
-        });
-        return null;
-      }
-      
-      const decryptedAccessToken = decrypt(session.access_token);
-      const decryptedRefreshToken = decrypt(session.refresh_token);
-      
-      return { 
-        access_token: decryptedAccessToken, 
-        refresh_token: decryptedRefreshToken,
-        expires_at: session.expires_at
-      };
-    } catch (error) {
-      logger.error(`Failed to get X session tokens: ${error.message}`, {
-        userId,
-        timestamp: new Date().toISOString(),
-        currentUser: 'KickTools',
-        stack: error.stack
-      });
-      throw error;
+}
+
+export async function getXSessionTokens(userId) {
+  try {
+    const session = await Session.findOne({
+      user_id: userId,
+      platform: 'x'
+    });
+
+    if (!session) {
+      return null;
     }
+
+    return {
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+      expires_at: session.expires_at
+    };
+  } catch (error) {
+    logger.error(`Error retrieving X session: ${error.message}`, {
+      userId,
+      timestamp: new Date().toISOString(),
+      currentUser: 'KickTools'
+    });
+    throw error;
   }
+}
 
 export async function deleteXSession(userId) {
   try {
